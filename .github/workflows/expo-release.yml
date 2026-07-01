@@ -1,0 +1,283 @@
+name: Expo release
+
+on:
+  workflow_call:
+    inputs:
+      project_name:   { type: string,  required: true }
+      profile:        { type: string,  required: true }   # business | personal (label only)
+      platform:       { type: string,  default: ios }     # ios | android | all
+      build_profile:  { type: string,  default: production }
+      submit_profile: { type: string,  default: production }
+      version:        { type: string,  required: false }
+      summary:        { type: string,  required: false }
+      skip_build:     { type: boolean, default: false }
+      node_version:   { type: string,  default: 'lts/*' }
+    secrets:
+      EXPO_TOKEN:          { required: true }
+      DISCORD_WEBHOOK_URL: { required: true }
+
+env:
+  ACTIONS_REPO: ih8celery/release-actions   # personal GitHub handle (confirmed)
+  ACTIONS_REF: v1
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    outputs:
+      thread_id: ${{ steps.open.outputs.thread_id }}
+      version:   ${{ steps.ver.outputs.version }}
+      platforms: ${{ steps.plat.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Checkout release-actions tools
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ACTIONS_REPO }}
+          ref: ${{ env.ACTIONS_REF }}
+          path: .tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - id: ver
+        shell: bash
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [ -n "$IN_VERSION" ]; then V="$IN_VERSION"
+          elif [ "$REF_TYPE" = "tag" ]; then V="${REF_NAME#v}"
+          else V=$(node -p "require('./package.json').version"); fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - id: plat
+        shell: bash
+        env:
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -euo pipefail
+          case "$PLATFORM" in
+            ios) P='["ios"]';;
+            android) P='["android"]';;
+            all) P='["ios","android"]';;
+            *) echo "bad platform: $PLATFORM" >&2; exit 1;;
+          esac
+          echo "platforms=$P" >> "$GITHUB_OUTPUT"
+
+      - id: sum
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          IN_SUMMARY: ${{ inputs.summary }}
+        run: |
+          set -euo pipefail
+          if [ -n "$IN_SUMMARY" ]; then
+            SUMMARY="$IN_SUMMARY"
+          else
+            CURRENT_TAG="v${VERSION}"
+            if git rev-parse "$CURRENT_TAG" >/dev/null 2>&1; then REF="$CURRENT_TAG"; else REF="HEAD"; fi
+            if PREV=$(git describe --tags --abbrev=0 "${REF}^" 2>/dev/null); then RANGE="${PREV}..${REF}"; else RANGE="${REF}"; fi
+            SUBJECTS=$(git log "$RANGE" --pretty=format:'%s')
+            SUMMARY=$(printf '%s' "$SUBJECTS" | node .tools/scripts/summary-cli.mjs)
+          fi
+          { echo 'summary<<__EOF__'; echo "$SUMMARY"; echo '__EOF__'; } >> "$GITHUB_OUTPUT"
+
+      - id: open
+        shell: bash
+        env:
+          PROJECT_NAME: ${{ inputs.project_name }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          PROFILE: ${{ inputs.profile }}
+          SUMMARY: ${{ steps.sum.outputs.summary }}
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          if [ "$IS_MANUAL" = "true" ]; then TRIGGER="manual"; else TRIGGER="auto: tag v${VERSION}"; fi
+          TITLE=$(node .tools/scripts/payload-cli.mjs title)
+          BODY=$(TRIGGER="$TRIGGER" node .tools/scripts/payload-cli.mjs body)
+          TID=$(.tools/scripts/discord.sh open "$WEBHOOK" "$TITLE" "$BODY")
+          echo "thread_id=$TID" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: announce
+    if: ${{ !inputs.skip_build }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.announce.outputs.platforms) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout release-actions tools
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ACTIONS_REPO }}
+          ref: ${{ env.ACTIONS_REF }}
+          path: .tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+      - run: npm install -g eas-cli
+
+      - name: Post build triggered
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.thread_id }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=build STATUS=triggered node .tools/scripts/payload-cli.mjs update)
+          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: EAS build
+        id: build
+        shell: bash
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          PLATFORM: ${{ matrix.platform }}
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+        run: |
+          set -euo pipefail
+          OUT=$(eas build --platform "$PLATFORM" --profile "$BUILD_PROFILE" --non-interactive --wait --json)
+          URL=$(printf '%s' "$OUT" | jq -r '.[0].buildDetailsPageUrl // empty')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Post build completed
+        if: success()
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.thread_id }}
+          PLATFORM: ${{ matrix.platform }}
+          URL: ${{ steps.build.outputs.url }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=build STATUS=completed node .tools/scripts/payload-cli.mjs update)
+          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: Post build failed
+        if: failure()
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.thread_id }}
+          PLATFORM: ${{ matrix.platform }}
+          URL: ${{ steps.build.outputs.url }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=build STATUS=failed node .tools/scripts/payload-cli.mjs update)
+          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+  submit:
+    needs: [announce, build]
+    if: ${{ always() && (inputs.skip_build || needs.build.result == 'success') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.announce.outputs.platforms) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout release-actions tools
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ACTIONS_REPO }}
+          ref: ${{ env.ACTIONS_REF }}
+          path: .tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+      - run: npm install -g eas-cli
+
+      - name: Post build-skipped notice
+        if: ${{ inputs.skip_build }}
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.thread_id }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=build STATUS=skipped node .tools/scripts/payload-cli.mjs update)
+          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: Post submit triggered
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.thread_id }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=submit STATUS=triggered node .tools/scripts/payload-cli.mjs update)
+          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: EAS submit
+        shell: bash
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          PLATFORM: ${{ matrix.platform }}
+          SUBMIT_PROFILE: ${{ inputs.submit_profile }}
+        run: |
+          set -euo pipefail
+          eas submit --platform "$PLATFORM" --profile "$SUBMIT_PROFILE" --latest --non-interactive
+
+      - name: Post submit completed
+        if: success()
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.thread_id }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=submit STATUS=completed node .tools/scripts/payload-cli.mjs update)
+          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: Post submit failed
+        if: failure()
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.thread_id }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=submit STATUS=failed node .tools/scripts/payload-cli.mjs update)
+          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+  finalize:
+    needs: [announce, build, submit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release-actions tools
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ACTIONS_REPO }}
+          ref: ${{ env.ACTIONS_REF }}
+          path: .tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+      - name: Post final status
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.thread_id }}
+          VERSION: ${{ needs.announce.outputs.version }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          SUBMIT_RESULT: ${{ needs.submit.result }}
+        run: |
+          set -euo pipefail
+          if [ "$SUBMIT_RESULT" = "success" ]; then OK=true; STAGE="";
+          elif [ "$BUILD_RESULT" = "failure" ]; then OK=false; STAGE="build";
+          else OK=false; STAGE="submit"; fi
+          LINE=$(OK="$OK" STAGE="$STAGE" node .tools/scripts/payload-cli.mjs final)
+          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+          [ "$OK" = "true" ] || { echo "release failed at ${STAGE}" >&2; exit 1; }
