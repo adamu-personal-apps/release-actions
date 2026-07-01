@@ -9,9 +9,14 @@ export function openTitle({ projectName, version, profile }) {
   return `${projectName} — v${version} ${tag} ${profile}`.replace(/\s+/g, ' ').trim();
 }
 
-/** Forum post body: trigger line + change bullets. */
+// Discord caps message content at 2000 characters.
+const DISCORD_CONTENT_LIMIT = 2000;
+
+/** Forum post body: trigger line + change bullets, clamped to Discord's limit. */
 export function openBody({ trigger, profile, summary }) {
-  return `🚀 Release triggered (${trigger}) · ${profile}\nChanges:\n${summary}`;
+  const body = `🚀 Release triggered (${trigger}) · ${profile}\nChanges:\n${summary}`;
+  if (body.length <= DISCORD_CONTENT_LIMIT) return body;
+  return `${body.slice(0, DISCORD_CONTENT_LIMIT - 1)}…`;
 }
 
 const EVENT_EMOJI = {

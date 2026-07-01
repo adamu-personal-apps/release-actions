@@ -24,6 +24,15 @@ describe('openBody', () => {
   });
 });
 
+describe('openBody truncation', () => {
+  it('truncates a body over the 2000-char Discord limit with an ellipsis', () => {
+    const summary = Array.from({ length: 200 }, (_, i) => `- commit number ${i}`).join('\n');
+    const body = openBody({ trigger: 'auto: tag v1.0.0', profile: 'personal', summary });
+    expect(body.length).toBeLessThanOrEqual(2000);
+    expect(body.endsWith('…')).toBe(true);
+  });
+});
+
 describe('updateLine', () => {
   it('builds an iOS build-triggered line with a url', () => {
     expect(updateLine({ platform: 'ios', event: 'build', status: 'triggered', url: 'https://x' }))

@@ -17,4 +17,18 @@ describe('buildSummary', () => {
   it('trims surrounding whitespace on each subject', () => {
     expect(buildSummary(['  feat: a  '])).toBe('- feat: a');
   });
+
+  it('caps at maxBullets and appends an "…and N more" line', () => {
+    const subjects = Array.from({ length: 5 }, (_, i) => `c${i + 1}`);
+    expect(buildSummary(subjects, 3)).toBe('- c1\n- c2\n- c3\n- …and 2 more');
+  });
+
+  it('does not add the "more" line when exactly at the cap', () => {
+    expect(buildSummary(['a', 'b', 'c'], 3)).toBe('- a\n- b\n- c');
+  });
+
+  it('defaults the cap to 20', () => {
+    const subjects = Array.from({ length: 25 }, (_, i) => `c${i}`);
+    expect(buildSummary(subjects)).toContain('- …and 5 more');
+  });
 });
