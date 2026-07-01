@@ -29,7 +29,7 @@ on:
 
 jobs:
   release:
-    uses: ih8celery/release-actions/.github/workflows/expo-release.yml@v1
+    uses: adamu-personal-apps/release-actions/.github/workflows/expo-release.yml@v1
     with:
       project_name: My App
       profile:      personal          # or business

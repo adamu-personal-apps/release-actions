@@ -17,7 +17,7 @@ on:
       DISCORD_WEBHOOK_URL: { required: true }
 
 env:
-  ACTIONS_REPO: ih8celery/release-actions   # personal GitHub handle (confirmed)
+  ACTIONS_REPO: adamu-personal-apps/release-actions   # org that owns this repo
   ACTIONS_REF: v1
 
 jobs:
