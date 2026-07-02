@@ -13,6 +13,11 @@ per-release thread.
    - `DISCORD_WEBHOOK_URL` — the forum webhook URL.
 3. A thin caller workflow (below).
 
+The reusable workflow installs caller project dependencies before `eas build`
+and `eas submit`. It uses `pnpm install --frozen-lockfile` when
+`pnpm-lock.yaml` is present, `npm ci` for npm lockfiles, and Yarn when
+`yarn.lock` is present.
+
 ## Caller workflow
 
 ```yaml
@@ -70,7 +75,8 @@ The reusable workflow runs four jobs: `announce` → `build` → `submit` →
 passes its `thread_id` to later jobs; each build/submit event posts one reply
 into that thread. All message text is built by small tested Node scripts in
 `scripts/`; the workflow checks this repo out into `.tools/` so those scripts are
-reachable from the caller's workspace.
+reachable from the caller's workspace. Dependency installation also runs from
+`.tools/`, but it installs the checked-out caller app using that app's lockfile.
 
 ## Known limitations
 

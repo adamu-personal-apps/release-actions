@@ -121,7 +121,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
-      - run: npm ci
+      - name: Install project dependencies
+        run: .tools/scripts/install-project-deps.sh
       - run: npm install -g eas-cli
 
       - name: Post build triggered
@@ -193,7 +194,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
-      - run: npm ci
+      - name: Install project dependencies
+        run: .tools/scripts/install-project-deps.sh
       - run: npm install -g eas-cli
 
       - name: Post build-skipped notice
