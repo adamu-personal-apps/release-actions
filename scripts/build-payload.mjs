@@ -1,61 +1,44 @@
-// Pure text formatting for Discord messages. Returns strings only;
-// safe JSON encoding is done by jq in discord.sh.
-
-const PROFILE_TAG = { business: '🏢', personal: '👤' };
+// Backward-compatible Discord helpers for the v1 workflow.
+// Shared content and destination limits live in release-messages.mjs.
+import {
+  createFinalMessage,
+  createOpenMessage,
+  createUpdateMessage,
+  renderDiscordOpen,
+  renderDiscordReply,
+} from './release-messages.mjs';
 
 /** Forum post title: "<project> — v<version> <emoji> <profile>". */
 export function openTitle({ projectName, version, profile }) {
-  const tag = PROFILE_TAG[profile] ?? '';
-  return `${projectName} — v${version} ${tag} ${profile}`.replace(/\s+/g, ' ').trim();
+  return renderDiscordOpen(createOpenMessage({
+    projectName,
+    version,
+    profile,
+    trigger: '',
+    summary: '',
+  })).title;
 }
-
-// Discord caps message content at 2000 characters.
-const DISCORD_CONTENT_LIMIT = 2000;
 
 /** Forum post body: trigger line + change bullets, clamped to Discord's limit. */
 export function openBody({ trigger, profile, summary }) {
-  const body = `🚀 Release triggered (${trigger}) · ${profile}\nChanges:\n${summary}`;
-  if (body.length <= DISCORD_CONTENT_LIMIT) return body;
-  return `${body.slice(0, DISCORD_CONTENT_LIMIT - 1)}…`;
+  return renderDiscordOpen(createOpenMessage({
+    projectName: '',
+    version: '',
+    profile,
+    trigger,
+    summary,
+  })).body;
 }
-
-const EVENT_EMOJI = {
-  'build:triggered': '🔨',
-  'build:completed': '✅',
-  'build:failed': '❌',
-  'build:skipped': '⏭️',
-  'submit:triggered': '📤',
-  'submit:completed': '✅',
-  'submit:failed': '❌',
-};
-
-const EVENT_TEXT = {
-  'build:triggered': 'EAS build triggered',
-  'build:completed': 'EAS build completed',
-  'build:failed': 'EAS build failed',
-  'build:skipped': 'build skipped — submitting latest',
-  'submit:triggered': 'EAS submit triggered',
-  'submit:completed': 'EAS submit completed',
-  'submit:failed': 'EAS submit failed',
-};
 
 /**
  * One thread update line.
  * @param {{platform:string,event:string,status:string,url?:string}} p
  */
-export function updateLine({ platform, event, status, url }) {
-  const key = `${event}:${status}`;
-  const emoji = EVENT_EMOJI[key];
-  const text = EVENT_TEXT[key];
-  if (!emoji || !text) throw new Error(`Unknown event/status: ${key}`);
-  const label = `[${platform === 'ios' ? 'iOS' : 'Android'}]`;
-  const base = `${emoji} ${label} ${text}`;
-  return url ? `${base} → ${url}` : base;
+export function updateLine(input) {
+  return renderDiscordReply(createUpdateMessage(input));
 }
 
 /** Final status line for the finalize job. */
-export function finalLine({ version, ok, stage }) {
-  return ok
-    ? `🎉 Release v${version} complete`
-    : `⚠️ Release v${version} failed at ${stage}`;
+export function finalLine(input) {
+  return renderDiscordReply(createFinalMessage(input));
 }
