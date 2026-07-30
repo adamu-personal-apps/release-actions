@@ -50,7 +50,7 @@ on:
 jobs:
   release:
     # release-actions v2.0.0
-    uses: adamu-personal-apps/release-actions/.github/workflows/expo-release.yml@REPLACE_WITH_V2_COMMIT
+    uses: adamu-personal-apps/release-actions/.github/workflows/expo-release.yml@c50f4620e4378bbdc25ff51c5f6f65497bb12796
     with:
       project_name: My App
       profile: personal
