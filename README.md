@@ -81,6 +81,19 @@ jobs:
 
 The workflow owns Node 24. Callers cannot select an older Node runtime.
 
+## Hosted publisher proof
+
+`publisher-smoke.yml` is a manual GitHub-hosted proof for a release-actions
+candidate. It opens one Discord test thread and one Slack test thread, posts a
+pickleball-themed lifecycle to both, and exercises an expected Slack warning
+with an invalid channel. The warning step must continue successfully.
+
+The proof repository needs `DISCORD_WEBHOOK_URL` and `SLACK_BOT_TOKEN` as
+Actions secrets, plus `RELEASE_SLACK_CHANNEL_ID` as an Actions variable. The
+workflow records its exact candidate commit and Node version in the run summary.
+It contains no Expo token, dependency install, EAS build, or EAS submission
+step.
+
 ## How it works
 
 The reusable workflow runs four jobs: `announce` → `build` → `submit` →

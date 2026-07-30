@@ -1,0 +1,181 @@
+name: Publisher smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publisher-smoke
+  cancel-in-progress: false
+
+env:
+  PROJECT_NAME: ShotStep publisher proof
+  VERSION: publisher-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+  PROFILE: personal
+  TRIGGER: hosted publisher smoke
+  SUMMARY: Coach proof - practice a controlled third-shot drop from the transition zone.
+  PLATFORM: ios
+  SLACK_CHANNEL_ID: ${{ vars.RELEASE_SLACK_CHANNEL_ID }}
+
+jobs:
+  publisher-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
+        with:
+          node-version: "24"
+
+      - id: candidate
+        name: Record candidate and runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          echo "candidate_commit=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Hosted publisher proof"
+            echo
+            echo "- Candidate commit: \`${{ github.sha }}\`"
+            echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- Runtime: \`$(node --version)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Require configured destinations
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DISCORD_WEBHOOK_URL"
+          test -n "$SLACK_BOT_TOKEN"
+          test -n "$SLACK_CHANNEL_ID"
+
+      - id: discord_root
+        name: Open Discord proof thread
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          TITLE=$(node scripts/payload-cli.mjs title)
+          BODY=$(node scripts/payload-cli.mjs body)
+          THREAD_ID=$(scripts/discord.sh open "$DISCORD_WEBHOOK_URL" "$TITLE" "$BODY")
+          echo "thread_id=$THREAD_ID" >> "$GITHUB_OUTPUT"
+
+      - id: slack_root
+        name: Open Slack proof thread
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(node scripts/payload-cli.mjs slack-open)
+          SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs open
+
+      - name: Require Slack proof thread
+        shell: bash
+        env:
+          SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
+        run: |
+          set -euo pipefail
+          test -n "$SLACK_THREAD_TS"
+
+      - name: Publish build-triggered proof
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=build STATUS=triggered node scripts/payload-cli.mjs update)
+          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
+          SLACK_TEXT=$(EVENT=build STATUS=triggered node scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
+
+      - name: Publish build-completed proof
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=build STATUS=completed URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" node scripts/payload-cli.mjs update)
+          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
+          SLACK_TEXT=$(EVENT=build STATUS=completed URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" node scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
+
+      - name: Publish submit-triggered proof
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=submit STATUS=triggered node scripts/payload-cli.mjs update)
+          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
+          SLACK_TEXT=$(EVENT=submit STATUS=triggered node scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
+
+      - name: Publish submit-completed proof
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
+        run: |
+          set -euo pipefail
+          LINE=$(EVENT=submit STATUS=completed node scripts/payload-cli.mjs update)
+          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
+          SLACK_TEXT=$(EVENT=submit STATUS=completed node scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
+
+      - name: Publish final proof
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
+        run: |
+          set -euo pipefail
+          LINE=$(OK=true STAGE="" node scripts/payload-cli.mjs final)
+          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
+          SLACK_TEXT=$(OK=true STAGE="" node scripts/payload-cli.mjs slack-final)
+          SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
+
+      - id: slack_warning
+        name: Prove Slack warning remains best effort
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: invalid-proof-channel
+          SLACK_TEXT: Expected failure-path proof for the ShotStep release publisher.
+        run: |
+          set -euo pipefail
+          node scripts/slack-cli.mjs open
+          echo "warning_path_completed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm Slack warning did not fail the proof
+        shell: bash
+        env:
+          WARNING_PATH_COMPLETED: ${{ steps.slack_warning.outputs.warning_path_completed }}
+        run: |
+          set -euo pipefail
+          test "$WARNING_PATH_COMPLETED" = "true"
+          {
+            echo "- Discord lifecycle: root plus five replies"
+            echo "- Slack lifecycle: one root plus five replies"
+            echo "- Slack failure path: warning recorded; proof continued"
+            echo "- No EAS build or submission was started."
+          } >> "$GITHUB_STEP_SUMMARY"
