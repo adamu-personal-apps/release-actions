@@ -3,42 +3,44 @@ name: Expo release
 on:
   workflow_call:
     inputs:
-      project_name:   { type: string,  required: true }
-      profile:        { type: string,  required: true }   # business | personal (label only)
-      platform:       { type: string,  default: ios }     # ios | android | all
-      build_profile:  { type: string,  default: production }
-      submit_profile: { type: string,  default: production }
-      version:        { type: string,  required: false }
-      summary:        { type: string,  required: false }
-      skip_build:     { type: boolean, default: false }
-      node_version:   { type: string,  default: 'lts/*' }
+      project_name: { type: string, required: true }
+      profile: { type: string, required: true } # business | personal (label only)
+      platform: { type: string, default: ios } # ios | android | all
+      build_profile: { type: string, default: production }
+      submit_profile: { type: string, default: production }
+      version: { type: string, required: false }
+      summary: { type: string, required: false }
+      skip_build: { type: boolean, default: false }
+      slack_channel_id: { type: string, required: false }
     secrets:
-      EXPO_TOKEN:          { required: true }
+      EXPO_TOKEN: { required: true }
       DISCORD_WEBHOOK_URL: { required: true }
+      SLACK_BOT_TOKEN: { required: false }
 
 env:
-  ACTIONS_REPO: adamu-personal-apps/release-actions   # org that owns this repo
-  ACTIONS_REF: v1
+  ACTIONS_REPO: adamu-personal-apps/release-actions
+  ACTIONS_REF: v2.0.0
 
 jobs:
   announce:
     runs-on: ubuntu-latest
     outputs:
-      thread_id: ${{ steps.open.outputs.thread_id }}
-      version:   ${{ steps.ver.outputs.version }}
+      discord_thread_id: ${{ steps.open_discord.outputs.thread_id }}
+      slack_thread_ts: ${{ steps.open_slack.outputs.thread_ts }}
+      version: ${{ steps.ver.outputs.version }}
       platforms: ${{ steps.plat.outputs.platforms }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
         with: { fetch-depth: 0 }
       - name: Checkout release-actions tools
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
         with:
           repository: ${{ env.ACTIONS_REPO }}
           ref: ${{ env.ACTIONS_REF }}
           path: .tools
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: "24"
 
       - id: ver
         shell: bash
@@ -85,7 +87,8 @@ jobs:
           fi
           { echo 'summary<<__EOF__'; echo "$SUMMARY"; echo '__EOF__'; } >> "$GITHUB_OUTPUT"
 
-      - id: open
+      - id: open_discord
+        name: Open Discord release thread
         shell: bash
         env:
           PROJECT_NAME: ${{ inputs.project_name }}
@@ -102,6 +105,24 @@ jobs:
           TID=$(.tools/scripts/discord.sh open "$WEBHOOK" "$TITLE" "$BODY")
           echo "thread_id=$TID" >> "$GITHUB_OUTPUT"
 
+      - id: open_slack
+        name: Open Slack release thread
+        continue-on-error: true
+        shell: bash
+        env:
+          PROJECT_NAME: ${{ inputs.project_name }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          PROFILE: ${{ inputs.profile }}
+          SUMMARY: ${{ steps.sum.outputs.summary }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          if [ "$IS_MANUAL" = "true" ]; then TRIGGER="manual"; else TRIGGER="auto: tag v${VERSION}"; fi
+          SLACK_TEXT=$(TRIGGER="$TRIGGER" node .tools/scripts/payload-cli.mjs slack-open)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs open
+
   build:
     needs: announce
     if: ${{ !inputs.skip_build }}
@@ -111,30 +132,43 @@ jobs:
       matrix:
         platform: ${{ fromJSON(needs.announce.outputs.platforms) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
       - name: Checkout release-actions tools
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
         with:
           repository: ${{ env.ACTIONS_REPO }}
           ref: ${{ env.ACTIONS_REF }}
           path: .tools
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: "24"
       - name: Install project dependencies
         run: .tools/scripts/install-project-deps.sh
       - run: npm install -g eas-cli
 
-      - name: Post build triggered
+      - name: Post Discord build triggered
         shell: bash
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.thread_id }}
+          TID: ${{ needs.announce.outputs.discord_thread_id }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
           LINE=$(EVENT=build STATUS=triggered node .tools/scripts/payload-cli.mjs update)
           .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: Post Slack build triggered
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(EVENT=build STATUS=triggered node .tools/scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
       - name: EAS build
         id: build
@@ -149,12 +183,12 @@ jobs:
           URL=$(printf '%s' "$OUT" | jq -r '.[0].buildDetailsPageUrl // empty')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      - name: Post build completed
+      - name: Post Discord build completed
         if: success()
         shell: bash
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.thread_id }}
+          TID: ${{ needs.announce.outputs.discord_thread_id }}
           PLATFORM: ${{ matrix.platform }}
           URL: ${{ steps.build.outputs.url }}
         run: |
@@ -162,18 +196,48 @@ jobs:
           LINE=$(EVENT=build STATUS=completed node .tools/scripts/payload-cli.mjs update)
           .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
 
-      - name: Post build failed
+      - name: Post Slack build completed
+        if: success()
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          PLATFORM: ${{ matrix.platform }}
+          URL: ${{ steps.build.outputs.url }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(EVENT=build STATUS=completed node .tools/scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
+
+      - name: Post Discord build failed
         if: failure()
         shell: bash
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.thread_id }}
+          TID: ${{ needs.announce.outputs.discord_thread_id }}
           PLATFORM: ${{ matrix.platform }}
           URL: ${{ steps.build.outputs.url }}
         run: |
           set -euo pipefail
           LINE=$(EVENT=build STATUS=failed node .tools/scripts/payload-cli.mjs update)
           .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: Post Slack build failed
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          PLATFORM: ${{ matrix.platform }}
+          URL: ${{ steps.build.outputs.url }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(EVENT=build STATUS=failed node .tools/scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
   submit:
     needs: [announce, build]
@@ -184,42 +248,69 @@ jobs:
       matrix:
         platform: ${{ fromJSON(needs.announce.outputs.platforms) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
       - name: Checkout release-actions tools
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
         with:
           repository: ${{ env.ACTIONS_REPO }}
           ref: ${{ env.ACTIONS_REF }}
           path: .tools
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: "24"
       - name: Install project dependencies
         run: .tools/scripts/install-project-deps.sh
       - run: npm install -g eas-cli
 
-      - name: Post build-skipped notice
+      - name: Post Discord build-skipped notice
         if: ${{ inputs.skip_build }}
         shell: bash
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.thread_id }}
+          TID: ${{ needs.announce.outputs.discord_thread_id }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
           LINE=$(EVENT=build STATUS=skipped node .tools/scripts/payload-cli.mjs update)
           .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
 
-      - name: Post submit triggered
+      - name: Post Slack build-skipped notice
+        if: ${{ inputs.skip_build }}
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(EVENT=build STATUS=skipped node .tools/scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
+
+      - name: Post Discord submit triggered
         shell: bash
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.thread_id }}
+          TID: ${{ needs.announce.outputs.discord_thread_id }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
           LINE=$(EVENT=submit STATUS=triggered node .tools/scripts/payload-cli.mjs update)
           .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: Post Slack submit triggered
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(EVENT=submit STATUS=triggered node .tools/scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
       - name: EAS submit
         shell: bash
@@ -231,29 +322,57 @@ jobs:
           set -euo pipefail
           eas submit --platform "$PLATFORM" --profile "$SUBMIT_PROFILE" --latest --non-interactive
 
-      - name: Post submit completed
+      - name: Post Discord submit completed
         if: success()
         shell: bash
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.thread_id }}
+          TID: ${{ needs.announce.outputs.discord_thread_id }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
           LINE=$(EVENT=submit STATUS=completed node .tools/scripts/payload-cli.mjs update)
           .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
 
-      - name: Post submit failed
+      - name: Post Slack submit completed
+        if: success()
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(EVENT=submit STATUS=completed node .tools/scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
+
+      - name: Post Discord submit failed
         if: failure()
         shell: bash
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.thread_id }}
+          TID: ${{ needs.announce.outputs.discord_thread_id }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
           LINE=$(EVENT=submit STATUS=failed node .tools/scripts/payload-cli.mjs update)
           .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
+
+      - name: Post Slack submit failed
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(EVENT=submit STATUS=failed node .tools/scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
   finalize:
     needs: [announce, build, submit]
@@ -261,20 +380,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release-actions tools
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
         with:
           repository: ${{ env.ACTIONS_REPO }}
           ref: ${{ env.ACTIONS_REF }}
           path: .tools
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
         with:
-          node-version: ${{ inputs.node_version }}
-      - name: Post final status
+          node-version: "24"
+
+      - id: state
+        name: Resolve final release state
         shell: bash
         env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.thread_id }}
-          VERSION: ${{ needs.announce.outputs.version }}
           BUILD_RESULT: ${{ needs.build.result }}
           SUBMIT_RESULT: ${{ needs.submit.result }}
         run: |
@@ -282,6 +400,43 @@ jobs:
           if [ "$SUBMIT_RESULT" = "success" ]; then OK=true; STAGE="";
           elif [ "$BUILD_RESULT" = "failure" ]; then OK=false; STAGE="build";
           else OK=false; STAGE="submit"; fi
-          LINE=$(OK="$OK" STAGE="$STAGE" node .tools/scripts/payload-cli.mjs final)
+          echo "ok=$OK" >> "$GITHUB_OUTPUT"
+          echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Post Discord final status
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TID: ${{ needs.announce.outputs.discord_thread_id }}
+          VERSION: ${{ needs.announce.outputs.version }}
+          OK: ${{ steps.state.outputs.ok }}
+          STAGE: ${{ steps.state.outputs.stage }}
+        run: |
+          set -euo pipefail
+          LINE=$(node .tools/scripts/payload-cli.mjs final)
           .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
-          [ "$OK" = "true" ] || { echo "release failed at ${STAGE}" >&2; exit 1; }
+
+      - name: Post Slack final status
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          VERSION: ${{ needs.announce.outputs.version }}
+          OK: ${{ steps.state.outputs.ok }}
+          STAGE: ${{ steps.state.outputs.stage }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(node .tools/scripts/payload-cli.mjs slack-final)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
+
+      - name: Report failed release
+        if: ${{ always() && steps.state.outputs.ok != 'true' }}
+        shell: bash
+        env:
+          STAGE: ${{ steps.state.outputs.stage }}
+        run: |
+          echo "release failed at ${STAGE}" >&2
+          exit 1
