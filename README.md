@@ -1,17 +1,29 @@
 # release-actions
 
-Reusable GitHub Actions workflow that announces Expo releases to a Discord
-**forum** channel and tracks the full `eas build` + `eas submit` lifecycle in a
-per-release thread.
+Reusable GitHub Actions workflow for Expo releases. The v2 workflow runs its
+project commands on Node 24 and publishes the same release lifecycle to:
 
-## What a caller needs
+- one Discord forum thread; and
+- one Slack root message with the later build, submit, and final updates in its
+  thread.
 
-1. A **Discord Forum channel** with a webhook. Copy the webhook URL.
-2. Two repo secrets:
-   - `EXPO_TOKEN` — an Expo access token. The account it belongs to selects
-     business vs personal (and supplies EAS-hosted submit credentials).
-   - `DISCORD_WEBHOOK_URL` — the forum webhook URL.
-3. A thin caller workflow (below).
+Slack is best effort. A missing token, missing root timestamp, or Slack API
+failure produces a visible GitHub warning and step-summary entry, but does not
+change the EAS build or submission result. Discord keeps the v1 behavior during
+the dual-publisher proof.
+
+The existing v1 tag remains the Discord-only contract for callers that have not
+migrated.
+
+## What a v2 caller needs
+
+1. A Discord forum webhook.
+2. A Slack bot with only `chat:write`, invited to the chosen release channel.
+3. Three repository secrets:
+   - `EXPO_TOKEN` — the Expo access token used by EAS.
+   - `DISCORD_WEBHOOK_URL` — the Discord forum webhook.
+   - `SLACK_BOT_TOKEN` — the restricted Slack bot token.
+4. The Slack channel ID as ordinary, non-secret workflow configuration.
 
 The reusable workflow installs caller project dependencies before `eas build`
 and `eas submit`. It uses `pnpm install --frozen-lockfile` when
@@ -20,65 +32,68 @@ and `eas submit`. It uses `pnpm install --frozen-lockfile` when
 
 ## Caller workflow
 
+Pin the published v2 commit in a real caller. The version comment keeps the
+otherwise opaque commit readable:
+
 ```yaml
 name: Release
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      version:    { type: string }
-      summary:    { type: string }
-      platform:   { type: choice, options: [ios, android, all], default: ios }
+      version: { type: string }
+      summary: { type: string }
+      platform: { type: choice, options: [ios, android, all], default: ios }
       skip_build: { type: boolean, default: false }
 
 jobs:
   release:
-    uses: adamu-personal-apps/release-actions/.github/workflows/expo-release.yml@v1
+    # release-actions v2.0.0
+    uses: adamu-personal-apps/release-actions/.github/workflows/expo-release.yml@REPLACE_WITH_V2_COMMIT
     with:
       project_name: My App
-      profile:      personal          # or business
-      platform:     ${{ inputs.platform || 'ios' }}
-      version:      ${{ inputs.version }}
-      summary:      ${{ inputs.summary }}
-      skip_build:   ${{ inputs.skip_build || false }}
+      profile: personal
+      platform: ${{ inputs.platform || 'ios' }}
+      version: ${{ inputs.version }}
+      summary: ${{ inputs.summary }}
+      skip_build: ${{ inputs.skip_build || false }}
+      slack_channel_id: C0123456789
     secrets:
-      EXPO_TOKEN:          ${{ secrets.EXPO_TOKEN }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 ```
-
-## Releasing
-
-- Auto: `npm version patch` (bumps package.json + creates `vX.Y.Z` tag), then
-  `git push --follow-tags`.
-- Manual: run the caller workflow via **workflow_dispatch**; set `skip_build:
-  true` to retry a submit against the last EAS build.
 
 ## Inputs
 
-| input | default | purpose |
-|-------|---------|---------|
-| `project_name` | — | display name in Discord |
-| `profile` | — | `business` \| `personal` (🏢/👤 tag only) |
-| `platform` | `ios` | `ios` \| `android` \| `all` |
-| `build_profile` | `production` | eas.json build profile |
-| `submit_profile` | `production` | eas.json submit profile |
-| `version` | derived | override; else tag or package.json |
-| `summary` | auto git-log | override |
-| `skip_build` | `false` | submit-only mode (`eas submit --latest`) |
-| `node_version` | `lts/*` | runner Node version |
+| input              | default      | purpose                                         |
+| ------------------ | ------------ | ----------------------------------------------- |
+| `project_name`     | —            | display name in both destinations               |
+| `profile`          | —            | `business` or `personal` label                  |
+| `platform`         | `ios`        | `ios`, `android`, or `all`                      |
+| `build_profile`    | `production` | EAS build profile                               |
+| `submit_profile`   | `production` | EAS submit profile                              |
+| `version`          | derived      | override; otherwise the tag or package version  |
+| `summary`          | git log      | optional manual release summary                 |
+| `skip_build`       | `false`      | submit the latest EAS build without a new build |
+| `slack_channel_id` | empty        | non-secret Slack destination                    |
+
+The workflow owns Node 24. Callers cannot select an older Node runtime.
 
 ## How it works
 
 The reusable workflow runs four jobs: `announce` → `build` → `submit` →
-`finalize` (the last with `if: always()`). `announce` opens the forum thread and
-passes its `thread_id` to later jobs; each build/submit event posts one reply
-into that thread. All message text is built by small tested Node scripts in
-`scripts/`; the workflow checks this repo out into `.tools/` so those scripts are
-reachable from the caller's workspace. Dependency installation also runs from
-`.tools/`, but it installs the checked-out caller app using that app's lockfile.
+`finalize`. `announce` opens both destinations and passes their thread
+identifiers to later jobs. Small tested Node scripts own message content and the
+Slack request. Discord and Slack keep separate transports.
 
-## Known limitations
+Every third-party GitHub action is pinned to a reviewed commit. The v2 workflow
+also checks out its helper scripts from `v2.0.0`, so the published workflow and
+tools resolve to the same implementation.
 
-- With `platform: all`, if one platform's build fails, submit is skipped for
-  **both** (job-level `needs.build.result`). Default `ios` is unaffected.
+## Known limitation
+
+With `platform: all`, if one platform's build fails, submit is skipped for both
+platforms because submit depends on the whole build matrix. The default
+single-platform path is unaffected.

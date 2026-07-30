@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Reusable GitHub Actions for Expo release notifications to Discord",
+  "description": "Reusable GitHub Actions for Expo release notifications to Discord and Slack",
   "scripts": {
     "test": "vitest run"
   },
