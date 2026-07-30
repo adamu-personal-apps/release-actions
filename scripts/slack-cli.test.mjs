@@ -76,8 +76,9 @@ describe("runSlackCommand", () => {
     });
     expect(writeOutput).toHaveBeenCalledWith(
       "::warning title=Slack release notification::" +
-        "Slack notification failed (slack_api_error); EAS continues. " +
-        "See the step summary.\n",
+        "Slack notification failed (slack_api_error): " +
+        "Slack chat.postMessage failed: channel_not_found. " +
+        "EAS continues. See the step summary.\n",
     );
     expect(appendFile).toHaveBeenCalledWith(
       "/tmp/github-summary",

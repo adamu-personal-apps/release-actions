@@ -10,7 +10,8 @@ function localWarning(code, message) {
 async function reportWarning({ result, env, appendFile, writeOutput }) {
   writeOutput(
     "::warning title=Slack release notification::" +
-      `Slack notification failed (${result.warning.code}); EAS continues. ` +
+      `Slack notification failed (${result.warning.code}): ` +
+      `${result.warning.message} EAS continues. ` +
       "See the step summary.\n",
   );
 
