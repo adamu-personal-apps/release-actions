@@ -3,8 +3,6 @@ import {
   createFinalMessage,
   createOpenMessage,
   createUpdateMessage,
-  renderDiscordOpen,
-  renderDiscordReply,
   renderSlackOpen,
   renderSlackReply,
 } from './release-messages.mjs';
@@ -51,44 +49,6 @@ describe('release message content', () => {
       .toBe('🎉 Release v0.1.8 complete');
     expect(createFinalMessage({ version: '0.1.8', ok: false, stage: 'submit' }))
       .toBe('⚠️ Release v0.1.8 failed at submit');
-  });
-});
-
-describe('Discord rendering', () => {
-  it('keeps the forum title and body inside Discord limits', () => {
-    const rendered = renderDiscordOpen(createOpenMessage({
-      projectName: `ShotStep ${'practice '.repeat(20)}`,
-      version: '0.1.8',
-      profile: 'personal',
-      trigger: 'manual',
-      summary: `- ${'third-shot drop '.repeat(300)}`,
-    }));
-
-    expect(rendered.title.length).toBeLessThanOrEqual(100);
-    expect(rendered.body.length).toBeLessThanOrEqual(2000);
-    expect(rendered.title.endsWith('…')).toBe(true);
-    expect(rendered.body.endsWith('…')).toBe(true);
-  });
-
-  it('keeps a lifecycle reply recognizable', () => {
-    expect(renderDiscordReply(createUpdateMessage({
-      platform: 'android',
-      event: 'submit',
-      status: 'triggered',
-    }))).toBe('📤 [Android] EAS submit triggered');
-  });
-
-  it('leaves quotes and newlines for the Discord transport to JSON-encode', () => {
-    const rendered = renderDiscordOpen(createOpenMessage({
-      projectName: 'ShotStep "Coach"',
-      version: '0.1.8',
-      profile: 'personal',
-      trigger: 'manual',
-      summary: '- fix: keep "kitchen" notes\n- feat: add serve targets',
-    }));
-
-    expect(rendered.title).toContain('"Coach"');
-    expect(rendered.body).toContain('"kitchen" notes\n- feat: add serve targets');
   });
 });
 

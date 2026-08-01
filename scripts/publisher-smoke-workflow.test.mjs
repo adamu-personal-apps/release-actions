@@ -25,21 +25,18 @@ describe("hosted publisher smoke workflow", () => {
     expect(workflow).toContain("node --version");
   });
 
-  it("publishes a realistic proof lifecycle to Discord and one Slack thread", () => {
+  it("publishes a realistic proof lifecycle to one Slack thread", () => {
     expect(workflow).toContain("third-shot drop");
-    expect(workflow.match(/discord\.sh open/g)).toHaveLength(1);
-    expect(workflow.match(/discord\.sh post/g)).toHaveLength(5);
     expect(workflow.match(/slack-cli\.mjs open/g)).toHaveLength(2);
     expect(workflow.match(/slack-cli\.mjs reply/g)).toHaveLength(5);
     expect(workflow).toContain("SLACK_THREAD_TS:");
+    expect(workflow).not.toMatch(/discord/i);
   });
 
   it("uses repository configuration without exposing credentials", () => {
-    expect(workflow).toContain("secrets.DISCORD_WEBHOOK_URL");
     expect(workflow).toContain("secrets.SLACK_BOT_TOKEN");
     expect(workflow).toContain("vars.RELEASE_SLACK_CHANNEL_ID");
     expect(workflow).not.toMatch(/xox[baprs]-/);
-    expect(workflow).not.toMatch(/discord(?:app)?\.com\/api\/webhooks\//);
   });
 
   it("proves Slack failure is a warning while the hosted proof stays truthful", () => {

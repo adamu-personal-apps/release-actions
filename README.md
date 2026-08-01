@@ -1,38 +1,30 @@
 # release-actions
 
-Reusable GitHub Actions workflow for Expo releases. The v2 workflow runs its
-project commands on Node 24 and publishes the same release lifecycle to:
-
-- one Discord forum thread; and
-- one Slack root message with the later build, submit, and final updates in its
-  thread.
+Reusable GitHub Actions workflow for Expo releases. The v3 workflow runs its
+project commands on Node 24 and publishes one Slack root message with later
+build, submit, and final updates in its thread.
 
 Slack is best effort. A missing token, missing root timestamp, or Slack API
 failure produces a visible GitHub warning and step-summary entry, but does not
-change the EAS build or submission result. Discord keeps the v1 behavior during
-the dual-publisher proof.
+change the EAS build or submission result.
 
-The existing v1 tag remains the Discord-only contract for callers that have not
-migrated.
+The existing v1 and v2 tags remain unchanged for callers that have not migrated.
 
-## What a v2 caller needs
+## What a v3 caller needs
 
-1. A Discord forum webhook.
-2. A Slack bot with only `chat:write`, invited to the chosen release channel.
-3. Three repository secrets:
+1. A Slack bot with only `chat:write`, invited to the chosen release channel.
+2. Two repository secrets:
    - `EXPO_TOKEN` — the Expo access token used by EAS.
-   - `DISCORD_WEBHOOK_URL` — the Discord forum webhook.
    - `SLACK_BOT_TOKEN` — the restricted Slack bot token.
-4. The Slack channel ID as ordinary, non-secret workflow configuration.
+3. The Slack channel ID as ordinary, non-secret workflow configuration.
 
 The reusable workflow installs caller project dependencies before `eas build`
-and `eas submit`. It uses `pnpm install --frozen-lockfile` when
-`pnpm-lock.yaml` is present, `npm ci` for npm lockfiles, and Yarn when
-`yarn.lock` is present.
+and `eas submit`. It uses `pnpm install --frozen-lockfile` when `pnpm-lock.yaml`
+is present, `npm ci` for npm lockfiles, and Yarn when `yarn.lock` is present.
 
 ## Caller workflow
 
-Pin the published v2 commit in a real caller. The version comment keeps the
+Pin the published v3 commit in a real caller. The version comment keeps the
 otherwise opaque commit readable:
 
 ```yaml
@@ -49,8 +41,8 @@ on:
 
 jobs:
   release:
-    # release-actions v2.0.0
-    uses: adamu-personal-apps/release-actions/.github/workflows/expo-release.yml@c50f4620e4378bbdc25ff51c5f6f65497bb12796
+    # release-actions v3.0.0
+    uses: adamu-personal-apps/release-actions/.github/workflows/expo-release.yml@V3_COMMIT_SHA
     with:
       project_name: My App
       profile: personal
@@ -61,7 +53,6 @@ jobs:
       slack_channel_id: C0123456789
     secrets:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 ```
 
@@ -69,7 +60,7 @@ jobs:
 
 | input              | default      | purpose                                         |
 | ------------------ | ------------ | ----------------------------------------------- |
-| `project_name`     | —            | display name in both destinations               |
+| `project_name`     | —            | display name                                    |
 | `profile`          | —            | `business` or `personal` label                  |
 | `platform`         | `ios`        | `ios`, `android`, or `all`                      |
 | `build_profile`    | `production` | EAS build profile                               |
@@ -84,25 +75,23 @@ The workflow owns Node 24. Callers cannot select an older Node runtime.
 ## Hosted publisher proof
 
 `publisher-smoke.yml` is a manual GitHub-hosted proof for a release-actions
-candidate. It opens one Discord test thread and one Slack test thread, posts a
-pickleball-themed lifecycle to both, and exercises an expected Slack warning
-with an invalid channel. The warning step must continue successfully.
+candidate. It opens one Slack test thread, posts a pickleball-themed lifecycle,
+and exercises an expected Slack warning with an invalid channel. The warning
+step must continue successfully.
 
-The proof repository needs `DISCORD_WEBHOOK_URL` and `SLACK_BOT_TOKEN` as
-Actions secrets, plus `RELEASE_SLACK_CHANNEL_ID` as an Actions variable. The
-workflow records its exact candidate commit and Node version in the run summary.
-It contains no Expo token, dependency install, EAS build, or EAS submission
-step.
+The proof repository needs `SLACK_BOT_TOKEN` as an Actions secret and
+`RELEASE_SLACK_CHANNEL_ID` as an Actions variable. The workflow records its
+exact candidate commit and Node version in the run summary. It contains no Expo
+token, dependency install, EAS build, or EAS submission step.
 
 ## How it works
 
 The reusable workflow runs four jobs: `announce` → `build` → `submit` →
-`finalize`. `announce` opens both destinations and passes their thread
-identifiers to later jobs. Small tested Node scripts own message content and the
-Slack request. Discord and Slack keep separate transports.
+`finalize`. `announce` opens the Slack root and passes its timestamp to later
+jobs. Small tested Node scripts own message content and the Slack request.
 
-Every third-party GitHub action is pinned to a reviewed commit. The v2 workflow
-also checks out its helper scripts from `v2.0.0`, so the published workflow and
+Every third-party GitHub action is pinned to a reviewed commit. The v3 workflow
+also checks out its helper scripts from `v3.0.0`, so the published workflow and
 tools resolve to the same implementation.
 
 ## Known limitation

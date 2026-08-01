@@ -16,22 +16,7 @@ const baseEnv = {
 };
 
 describe("payloadFor", () => {
-  it("keeps the existing Discord payload commands recognizable", () => {
-    expect(payloadFor("title", baseEnv)).toBe("ShotStep — v0.1.8 👤 personal");
-    expect(payloadFor("body", baseEnv)).toBe(
-      [
-        "🚀 Release triggered (manual) · personal",
-        "Changes:",
-        "- feat: add cross-court dink homework",
-      ].join("\n"),
-    );
-    expect(payloadFor("update", baseEnv)).toBe(
-      "✅ [iOS] EAS build completed → https://expo.dev/builds/shotstep",
-    );
-    expect(payloadFor("final", baseEnv)).toBe("🎉 Release v0.1.8 complete");
-  });
-
-  it("builds Slack roots and replies from the same lifecycle facts", () => {
+  it("builds Slack roots and replies from release lifecycle facts", () => {
     expect(payloadFor("slack-open", baseEnv)).toBe(
       [
         "ShotStep — v0.1.8 👤 personal",

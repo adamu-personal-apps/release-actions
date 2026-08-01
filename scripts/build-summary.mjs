@@ -1,4 +1,4 @@
-// Pure: turn commit subject lines into a Discord-ready bullet block.
+// Pure: turn commit subject lines into a release-summary bullet block.
 // No git, no I/O — just string logic, so it is trivially testable.
 
 /**

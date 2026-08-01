@@ -3,8 +3,6 @@
 
 const PROFILE_TAG = { business: '🏢', personal: '👤' };
 
-const DISCORD_TITLE_LIMIT = 100;
-const DISCORD_CONTENT_LIMIT = 2000;
 const SLACK_TEXT_LIMIT = 4000;
 
 const EVENT_EMOJI = {
@@ -66,17 +64,6 @@ export function createFinalMessage({ version, ok, stage }) {
   return ok
     ? `🎉 Release v${version} complete`
     : `⚠️ Release v${version} failed at ${stage}`;
-}
-
-export function renderDiscordOpen(message) {
-  return {
-    title: truncate(message.title, DISCORD_TITLE_LIMIT),
-    body: truncate(message.body, DISCORD_CONTENT_LIMIT),
-  };
-}
-
-export function renderDiscordReply(message) {
-  return truncate(message, DISCORD_CONTENT_LIMIT);
 }
 
 export function renderSlackOpen(message) {

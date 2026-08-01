@@ -4,12 +4,6 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  openTitle,
-  openBody,
-  updateLine,
-  finalLine,
-} from "./build-payload.mjs";
-import {
   createFinalMessage,
   createOpenMessage,
   createUpdateMessage,
@@ -46,14 +40,6 @@ function finalInput(env) {
 
 export function payloadFor(kind, env) {
   switch (kind) {
-    case "title":
-      return openTitle(openInput(env));
-    case "body":
-      return openBody(openInput(env));
-    case "update":
-      return updateLine(updateInput(env));
-    case "final":
-      return finalLine(finalInput(env));
     case "slack-open":
       return renderSlackOpen(createOpenMessage(openInput(env)));
     case "slack-update":

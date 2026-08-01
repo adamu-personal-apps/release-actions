@@ -14,18 +14,16 @@ on:
       slack_channel_id: { type: string, required: false }
     secrets:
       EXPO_TOKEN: { required: true }
-      DISCORD_WEBHOOK_URL: { required: true }
       SLACK_BOT_TOKEN: { required: false }
 
 env:
   ACTIONS_REPO: adamu-personal-apps/release-actions
-  ACTIONS_REF: v2.0.0
+  ACTIONS_REF: v3.0.0
 
 jobs:
   announce:
     runs-on: ubuntu-latest
     outputs:
-      discord_thread_id: ${{ steps.open_discord.outputs.thread_id }}
       slack_thread_ts: ${{ steps.open_slack.outputs.thread_ts }}
       version: ${{ steps.ver.outputs.version }}
       platforms: ${{ steps.plat.outputs.platforms }}
@@ -87,24 +85,6 @@ jobs:
           fi
           { echo 'summary<<__EOF__'; echo "$SUMMARY"; echo '__EOF__'; } >> "$GITHUB_OUTPUT"
 
-      - id: open_discord
-        name: Open Discord release thread
-        shell: bash
-        env:
-          PROJECT_NAME: ${{ inputs.project_name }}
-          VERSION: ${{ steps.ver.outputs.version }}
-          PROFILE: ${{ inputs.profile }}
-          SUMMARY: ${{ steps.sum.outputs.summary }}
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          set -euo pipefail
-          if [ "$IS_MANUAL" = "true" ]; then TRIGGER="manual"; else TRIGGER="auto: tag v${VERSION}"; fi
-          TITLE=$(node .tools/scripts/payload-cli.mjs title)
-          BODY=$(TRIGGER="$TRIGGER" node .tools/scripts/payload-cli.mjs body)
-          TID=$(.tools/scripts/discord.sh open "$WEBHOOK" "$TITLE" "$BODY")
-          echo "thread_id=$TID" >> "$GITHUB_OUTPUT"
-
       - id: open_slack
         name: Open Slack release thread
         continue-on-error: true
@@ -146,17 +126,6 @@ jobs:
         run: .tools/scripts/install-project-deps.sh
       - run: npm install -g eas-cli
 
-      - name: Post Discord build triggered
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.discord_thread_id }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          LINE=$(EVENT=build STATUS=triggered node .tools/scripts/payload-cli.mjs update)
-          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
-
       - name: Post Slack build triggered
         continue-on-error: true
         shell: bash
@@ -183,19 +152,6 @@ jobs:
           URL=$(printf '%s' "$OUT" | jq -r '.[0].buildDetailsPageUrl // empty')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      - name: Post Discord build completed
-        if: success()
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.discord_thread_id }}
-          PLATFORM: ${{ matrix.platform }}
-          URL: ${{ steps.build.outputs.url }}
-        run: |
-          set -euo pipefail
-          LINE=$(EVENT=build STATUS=completed node .tools/scripts/payload-cli.mjs update)
-          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
-
       - name: Post Slack build completed
         if: success()
         continue-on-error: true
@@ -210,19 +166,6 @@ jobs:
           set -euo pipefail
           SLACK_TEXT=$(EVENT=build STATUS=completed node .tools/scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
-      - name: Post Discord build failed
-        if: failure()
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.discord_thread_id }}
-          PLATFORM: ${{ matrix.platform }}
-          URL: ${{ steps.build.outputs.url }}
-        run: |
-          set -euo pipefail
-          LINE=$(EVENT=build STATUS=failed node .tools/scripts/payload-cli.mjs update)
-          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
 
       - name: Post Slack build failed
         if: failure()
@@ -262,18 +205,6 @@ jobs:
         run: .tools/scripts/install-project-deps.sh
       - run: npm install -g eas-cli
 
-      - name: Post Discord build-skipped notice
-        if: ${{ inputs.skip_build }}
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.discord_thread_id }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          LINE=$(EVENT=build STATUS=skipped node .tools/scripts/payload-cli.mjs update)
-          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
-
       - name: Post Slack build-skipped notice
         if: ${{ inputs.skip_build }}
         continue-on-error: true
@@ -287,17 +218,6 @@ jobs:
           set -euo pipefail
           SLACK_TEXT=$(EVENT=build STATUS=skipped node .tools/scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
-      - name: Post Discord submit triggered
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.discord_thread_id }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          LINE=$(EVENT=submit STATUS=triggered node .tools/scripts/payload-cli.mjs update)
-          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
 
       - name: Post Slack submit triggered
         continue-on-error: true
@@ -322,18 +242,6 @@ jobs:
           set -euo pipefail
           eas submit --platform "$PLATFORM" --profile "$SUBMIT_PROFILE" --latest --non-interactive
 
-      - name: Post Discord submit completed
-        if: success()
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.discord_thread_id }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          LINE=$(EVENT=submit STATUS=completed node .tools/scripts/payload-cli.mjs update)
-          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
-
       - name: Post Slack submit completed
         if: success()
         continue-on-error: true
@@ -347,18 +255,6 @@ jobs:
           set -euo pipefail
           SLACK_TEXT=$(EVENT=submit STATUS=completed node .tools/scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
-      - name: Post Discord submit failed
-        if: failure()
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.discord_thread_id }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          LINE=$(EVENT=submit STATUS=failed node .tools/scripts/payload-cli.mjs update)
-          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
 
       - name: Post Slack submit failed
         if: failure()
@@ -402,19 +298,6 @@ jobs:
           else OK=false; STAGE="submit"; fi
           echo "ok=$OK" >> "$GITHUB_OUTPUT"
           echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
-
-      - name: Post Discord final status
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TID: ${{ needs.announce.outputs.discord_thread_id }}
-          VERSION: ${{ needs.announce.outputs.version }}
-          OK: ${{ steps.state.outputs.ok }}
-          STAGE: ${{ steps.state.outputs.stage }}
-        run: |
-          set -euo pipefail
-          LINE=$(node .tools/scripts/payload-cli.mjs final)
-          .tools/scripts/discord.sh post "$WEBHOOK" "$TID" "$LINE"
 
       - name: Post Slack final status
         if: ${{ always() }}

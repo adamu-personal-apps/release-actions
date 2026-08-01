@@ -16,7 +16,7 @@ function actionRefs(action) {
   ].map((match) => match[1]);
 }
 
-describe("shared v2 workflow contract", () => {
+describe("shared v3 workflow contract", () => {
   it("pins every official action to the reviewed Node 24 release", () => {
     expect(actionRefs("actions/checkout")).not.toHaveLength(0);
     expect(new Set(actionRefs("actions/checkout"))).toEqual(
@@ -30,22 +30,22 @@ describe("shared v2 workflow contract", () => {
     expect(workflow).toContain(`# setup-node v7`);
   });
 
-  it("uses Node 24 throughout and checks out the v2 tools contract", () => {
+  it("uses Node 24 throughout and checks out the v3 tools contract", () => {
     expect(workflow).not.toContain("node_version:");
     expect(workflow).not.toContain("inputs.node_version");
     expect(workflow).not.toMatch(/node-version:\s*(?:20|22|lts)/);
     expect([
       ...workflow.matchAll(/node-version:\s*["']?24["']?/g),
     ]).toHaveLength(4);
-    expect(workflow).toContain("ACTIONS_REF: v2.0.0");
+    expect(workflow).toContain("ACTIONS_REF: v3.0.0");
   });
 
-  it("declares Discord plus optional Slack inputs and thread outputs", () => {
+  it("declares only the optional Slack publisher contract", () => {
     expect(workflow).toContain("slack_channel_id:");
     expect(workflow).toContain("SLACK_BOT_TOKEN:");
     expect(workflow).toMatch(/SLACK_BOT_TOKEN:\s*\{\s*required:\s*false\s*\}/);
-    expect(workflow).toContain("discord_thread_id:");
     expect(workflow).toContain("slack_thread_ts:");
+    expect(workflow).not.toMatch(/discord/i);
   });
 
   it("publishes one Slack root plus every lifecycle reply as best effort", () => {

@@ -43,28 +43,14 @@ jobs:
             echo "- Runtime: \`$(node --version)\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Require configured destinations
+      - name: Require configured destination
         shell: bash
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$DISCORD_WEBHOOK_URL"
           test -n "$SLACK_BOT_TOKEN"
           test -n "$SLACK_CHANNEL_ID"
-
-      - id: discord_root
-        name: Open Discord proof thread
-        shell: bash
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          set -euo pipefail
-          TITLE=$(node scripts/payload-cli.mjs title)
-          BODY=$(node scripts/payload-cli.mjs body)
-          THREAD_ID=$(scripts/discord.sh open "$DISCORD_WEBHOOK_URL" "$TITLE" "$BODY")
-          echo "thread_id=$THREAD_ID" >> "$GITHUB_OUTPUT"
 
       - id: slack_root
         name: Open Slack proof thread
@@ -87,70 +73,50 @@ jobs:
       - name: Publish build-triggered proof
         shell: bash
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
         run: |
           set -euo pipefail
-          LINE=$(EVENT=build STATUS=triggered node scripts/payload-cli.mjs update)
-          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
           SLACK_TEXT=$(EVENT=build STATUS=triggered node scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
 
       - name: Publish build-completed proof
         shell: bash
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
         run: |
           set -euo pipefail
-          LINE=$(EVENT=build STATUS=completed URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" node scripts/payload-cli.mjs update)
-          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
           SLACK_TEXT=$(EVENT=build STATUS=completed URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" node scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
 
       - name: Publish submit-triggered proof
         shell: bash
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
         run: |
           set -euo pipefail
-          LINE=$(EVENT=submit STATUS=triggered node scripts/payload-cli.mjs update)
-          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
           SLACK_TEXT=$(EVENT=submit STATUS=triggered node scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
 
       - name: Publish submit-completed proof
         shell: bash
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
         run: |
           set -euo pipefail
-          LINE=$(EVENT=submit STATUS=completed node scripts/payload-cli.mjs update)
-          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
           SLACK_TEXT=$(EVENT=submit STATUS=completed node scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
 
       - name: Publish final proof
         shell: bash
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_THREAD_ID: ${{ steps.discord_root.outputs.thread_id }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_THREAD_TS: ${{ steps.slack_root.outputs.thread_ts }}
         run: |
           set -euo pipefail
-          LINE=$(OK=true STAGE="" node scripts/payload-cli.mjs final)
-          scripts/discord.sh post "$DISCORD_WEBHOOK_URL" "$DISCORD_THREAD_ID" "$LINE"
           SLACK_TEXT=$(OK=true STAGE="" node scripts/payload-cli.mjs slack-final)
           SLACK_TEXT="$SLACK_TEXT" node scripts/slack-cli.mjs reply
 
@@ -174,7 +140,6 @@ jobs:
           set -euo pipefail
           test "$WARNING_PATH_COMPLETED" = "true"
           {
-            echo "- Discord lifecycle: root plus five replies"
             echo "- Slack lifecycle: one root plus five replies"
             echo "- Slack failure path: warning recorded; proof continued"
             echo "- No EAS build or submission was started."
