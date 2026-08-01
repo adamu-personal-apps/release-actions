@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Reusable GitHub Actions for Expo release notifications in Slack",
+  "description": "Reusable GitHub Actions for Expo releases and static-site deployments",
   "scripts": {
+    "static-site-artifact": "node scripts/static-site-artifact.mjs",
     "test": "vitest run"
   },
   "devDependencies": {
