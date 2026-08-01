@@ -99,3 +99,43 @@ tools resolve to the same implementation.
 With `platform: all`, if one platform's build fails, submit is skipped for both
 platforms because submit depends on the whole build matrix. The default
 single-platform path is unaffected.
+
+## Static-site artifact boundary
+
+The provider-free static-site helper runs a caller-owned build command, then
+packages only its declared output directory. The package always has this shape:
+
+```text
+site-package/
+├── manifest.json
+└── site/
+```
+
+`manifest.json` has exactly four fields: schema version, the
+`static-directory` kind, the full source revision, and a SHA-256 content
+digest. Hidden paths such as `.well-known` are included. Links that leave the
+declared output and hard-linked files fail; safe internal symbolic links are
+copied as ordinary files or directories so the package itself contains no
+links.
+
+Build code receives a small allowlist of ordinary process settings such as
+`PATH`, `HOME`, and `CI`. Provider credentials and other inherited variables
+are not passed to it. Secret-like command values or captured logs fail closed,
+and captured unsafe output is never printed.
+
+Build and verify a package with:
+
+```bash
+npm run static-site-artifact -- build \
+  --command "pnpm site:prepare" \
+  --output-directory ".site-dist" \
+  --package-directory ".site-package" \
+  --source-revision "$GITHUB_SHA"
+
+npm run static-site-artifact -- verify \
+  --package-directory ".site-package"
+```
+
+The verifier rejects extra package entries, unknown manifest fields, unsupported
+schema versions or artifact kinds, symbolic links, and content whose digest no
+longer matches. Provider publishing is intentionally a separate concern.
