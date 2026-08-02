@@ -209,13 +209,14 @@ describe("Cloudflare Pages static-site publisher", () => {
         `${JSON.stringify({
           type: "command-failed",
           version: 1,
-          error: `Project was not found for ${account}`,
+          code: 10090,
+          message: `Pages project was not found for ${account}`,
         })}\n`,
       );
       return {
         exitCode: 1,
         stdout: "",
-        stderr: `API token ${token}: Pages project was not found for ${account}`,
+        stderr: `API token ${token}: request failed for ${account}`,
       };
     });
 

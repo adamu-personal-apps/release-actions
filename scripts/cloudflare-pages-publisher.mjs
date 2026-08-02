@@ -115,6 +115,23 @@ function parseOutputEntries(output) {
   return entries;
 }
 
+async function readStructuredFailure(outputFilePath) {
+  try {
+    const entries = parseOutputEntries(await readFile(outputFilePath, "utf8"));
+    const failure = entries.findLast(
+      (entry) => entry?.type === "command-failed" && entry.version === 1,
+    );
+    if (typeof failure?.message !== "string" || failure.message.trim() === "") {
+      return null;
+    }
+    return failure.code === undefined
+      ? failure.message
+      : `Wrangler error ${failure.code}: ${failure.message}`;
+  } catch {
+    return null;
+  }
+}
+
 export function parseWranglerOutput(
   output,
   { projectName, expectedEnvironment, productionBranch, sourceRevision },
@@ -207,8 +224,12 @@ export async function publishStaticSiteToCloudflarePages({
     });
 
     if (commandResult.exitCode !== 0) {
+      const structuredFailure = await readStructuredFailure(outputFilePath);
       const detail = redactProviderError(
-        commandResult.stderr || commandResult.stdout || "Wrangler returned no error detail.",
+        structuredFailure ||
+          commandResult.stderr ||
+          commandResult.stdout ||
+          "Wrangler returned no error detail.",
         environment,
       );
       throw new Error(
