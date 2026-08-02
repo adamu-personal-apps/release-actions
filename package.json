@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Reusable GitHub Actions for Expo releases and static-site deployments",
   "scripts": {
+    "cloudflare-pages-publisher": "node scripts/cloudflare-pages-publisher.mjs",
     "static-site-artifact": "node scripts/static-site-artifact.mjs",
     "test": "vitest run"
   },
