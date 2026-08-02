@@ -139,3 +139,28 @@ npm run static-site-artifact -- verify \
 The verifier rejects extra package entries, unknown manifest fields, unsupported
 schema versions or artifact kinds, symbolic links, and content whose digest no
 longer matches. Provider publishing is intentionally a separate concern.
+
+## Cloudflare Pages publisher boundary
+
+The Cloudflare Pages helper accepts only a package that passes the static-site
+verifier plus an existing project name, deployment branch, and production
+branch. It runs pinned Wrangler `4.118.0` with only the Cloudflare API token,
+account ID, and ordinary process settings. Automatic project or resource
+creation is disabled, and the artifact's source revision is attached to the
+deployment.
+
+```bash
+npm run cloudflare-pages-publisher -- \
+  --package-directory ".site-package" \
+  --project-name "shotstep" \
+  --deployment-branch "main" \
+  --production-branch "main"
+```
+
+The command ignores Wrangler's decorative console text. It reads Wrangler's
+structured deployment record and checks the project, production or preview
+environment, production branch, and source revision before returning one JSON
+object with the provider, environment, deployment ID, URL, success status,
+source revision, and artifact digest. Errors redact the provided token and
+account ID. Project creation, domain or DNS changes, and build execution are not
+part of this helper.
