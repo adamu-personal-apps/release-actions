@@ -45,6 +45,16 @@ describe('release message content', () => {
       status: 'completed',
       url: 'https://expo.dev/builds/shotstep',
     })).toBe('✅ [iOS] EAS build completed → https://expo.dev/builds/shotstep');
+    expect(createUpdateMessage({
+      platform: 'ios',
+      event: 'selection',
+      status: 'failed',
+    })).toBe('❌ [iOS] EAS build selection failed');
+    expect(createUpdateMessage({
+      platform: 'android',
+      event: 'build',
+      status: 'skipped',
+    })).toBe('⏭️ [Android] build skipped — submitting selected build ID');
     expect(createFinalMessage({ version: '0.1.8', ok: true }))
       .toBe('🎉 Release v0.1.8 complete');
     expect(createFinalMessage({ version: '0.1.8', ok: false, stage: 'submit' }))
