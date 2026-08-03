@@ -11,6 +11,9 @@ const selectedBuildJson = JSON.stringify([
   {
     id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
     buildDetailsPageUrl: "https://expo.dev/builds/8e32215c",
+    appIdentifier: "com.shotstep.shotstep",
+    appVersion: "0.1.7",
+    appBuildVersion: "42",
   },
 ]);
 
@@ -71,19 +74,99 @@ describe("exact EAS release commands", () => {
         platform: "ios",
         buildProfile: "production",
         skipBuild: false,
+        expectedAppIdentifier: "com.shotstep.shotstep",
+        expectedAppVersion: "0.1.7",
         runCommand,
       }),
     ).resolves.toEqual({
       id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
       url: "https://expo.dev/builds/8e32215c",
+      appIdentifier: "com.shotstep.shotstep",
+      appVersion: "0.1.7",
+      appBuildVersion: "42",
     });
     expect(runCommand).toHaveBeenCalledOnce();
   });
 
   it("fails closed when EAS returns no selected build", () => {
-    expect(() => resolveBuildSelection("[]")).toThrow(
+    expect(() =>
+      resolveBuildSelection("[]", {
+        expectedAppIdentifier: "com.shotstep.shotstep",
+        expectedAppVersion: "0.1.7",
+      }),
+    ).toThrow(
       "EAS did not return one build with a non-empty ID",
     );
+  });
+
+  it("fails closed when selected build identity metadata is missing", () => {
+    expect(() =>
+      resolveBuildSelection(
+        JSON.stringify([{ id: "8e32215c-7061-46e4-b15d-08cd2f590a2a" }]),
+        {
+          expectedAppIdentifier: "com.shotstep.shotstep",
+          expectedAppVersion: "0.1.7",
+        },
+      ),
+    ).toThrow("EAS build app identifier is missing");
+  });
+
+  it("fails closed when the selected build has the wrong app identifier", () => {
+    expect(() =>
+      resolveBuildSelection(
+        JSON.stringify([
+          {
+            id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
+            appIdentifier: "com.example.old-app",
+            appVersion: "0.1.7",
+            appBuildVersion: "42",
+          },
+        ]),
+        {
+          expectedAppIdentifier: "com.shotstep.shotstep",
+          expectedAppVersion: "0.1.7",
+        },
+      ),
+    ).toThrow(
+      "EAS build app identifier mismatch: expected com.shotstep.shotstep, received com.example.old-app",
+    );
+  });
+
+  it("fails closed when the selected build has the wrong app version", () => {
+    expect(() =>
+      resolveBuildSelection(
+        JSON.stringify([
+          {
+            id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
+            appIdentifier: "com.shotstep.shotstep",
+            appVersion: "0.1.6",
+            appBuildVersion: "41",
+          },
+        ]),
+        {
+          expectedAppIdentifier: "com.shotstep.shotstep",
+          expectedAppVersion: "0.1.7",
+        },
+      ),
+    ).toThrow("EAS build app version mismatch: expected 0.1.7, received 0.1.6");
+  });
+
+  it("fails closed when the selected build number is missing", () => {
+    expect(() =>
+      resolveBuildSelection(
+        JSON.stringify([
+          {
+            id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
+            appIdentifier: "com.shotstep.shotstep",
+            appVersion: "0.1.7",
+          },
+        ]),
+        {
+          expectedAppIdentifier: "com.shotstep.shotstep",
+          expectedAppVersion: "0.1.7",
+        },
+      ),
+    ).toThrow("EAS build number is missing");
   });
 
   it.each(["ios", "android"])(
