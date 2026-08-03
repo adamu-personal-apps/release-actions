@@ -36,8 +36,10 @@ describe("shared v3 workflow contract", () => {
     expect(workflow).not.toMatch(/node-version:\s*(?:20|22|lts)/);
     expect([
       ...workflow.matchAll(/node-version:\s*["']?24["']?/g),
-    ]).toHaveLength(4);
-    expect(workflow).toContain("ACTIONS_REF: v3.0.0");
+    ]).toHaveLength(3);
+    expect(workflow).toContain(
+      "ACTIONS_REF: 117629500facdbb6782a4f8c2860a4b410f41d2f",
+    );
   });
 
   it("declares only the optional Slack publisher contract", () => {
@@ -50,23 +52,47 @@ describe("shared v3 workflow contract", () => {
 
   it("publishes one Slack root plus every lifecycle reply as best effort", () => {
     expect([...workflow.matchAll(/slack-cli\.mjs open/g)]).toHaveLength(1);
-    expect([...workflow.matchAll(/slack-cli\.mjs reply/g)]).toHaveLength(8);
+    expect([...workflow.matchAll(/slack-cli\.mjs reply/g)]).toHaveLength(9);
     expect([...workflow.matchAll(/continue-on-error:\s*true/g)]).toHaveLength(
-      9,
+      10,
     );
     expect(workflow).toContain("needs.announce.outputs.slack_thread_ts");
   });
 
-  it("keeps the EAS build and submit commands unchanged", () => {
+  it("submits the exact EAS build selected by the release job", () => {
     expect(workflow).toContain(
-      'eas build --platform "$PLATFORM" --profile "$BUILD_PROFILE" ' +
-        "--non-interactive --wait --json",
+      'SELECT_ARGS=(select --platform "$PLATFORM" --build-profile "$BUILD_PROFILE")',
+    );
+    expect(workflow).toContain("SELECT_ARGS+=(--skip-build)");
+    expect(workflow).toContain(
+      'SELECTED=$(node .tools/scripts/exact-eas-release.mjs "${SELECT_ARGS[@]}")',
+    );
+    expect(workflow).toContain("BUILD_ID=$(printf '%s' \"$SELECTED\" | jq -er");
+    expect(workflow).toContain('echo "id=$BUILD_ID" >> "$GITHUB_OUTPUT"');
+    expect(workflow).toContain(
+      "node .tools/scripts/exact-eas-release.mjs submit " +
+        '--platform "$PLATFORM" --submit-profile "$SUBMIT_PROFILE" ' +
+        '--build-id "$BUILD_ID"',
+    );
+    expect(workflow).toContain('Resolved EAS build ID: $BUILD_ID');
+    expect(workflow).not.toContain("--latest");
+    expect(workflow.match(/npm install -g eas-cli/g)).toHaveLength(1);
+  });
+
+  it("keeps build selection and submission in one platform-scoped job", () => {
+    expect(workflow).toContain("release:\n    needs: announce");
+    expect(workflow).toContain("matrix:\n        platform:");
+    expect(workflow).toContain("finalize:\n    needs: [announce, release]");
+  });
+
+  it("reports build-selection and submit failures at their real stages", () => {
+    expect(workflow).toContain("name: Post Slack build selection failed");
+    expect(workflow).toContain(
+      "failure() && inputs.skip_build && steps.select_build.outcome == 'failure'",
     );
     expect(workflow).toContain(
-      'eas submit --platform "$PLATFORM" --profile "$SUBMIT_PROFILE" ' +
-        "--latest --non-interactive",
+      "failure() && steps.submit.outcome == 'failure'",
     );
-    expect(workflow.match(/npm install -g eas-cli/g)).toHaveLength(2);
   });
 
   it("reports the real release result after the best-effort Slack final reply", () => {

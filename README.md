@@ -67,7 +67,7 @@ jobs:
 | `submit_profile`   | `production` | EAS submit profile                              |
 | `version`          | derived      | override; otherwise the tag or package version  |
 | `summary`          | git log      | optional manual release summary                 |
-| `skip_build`       | `false`      | submit the latest EAS build without a new build |
+| `skip_build`       | `false`      | resolve one finished build for the requested profile and submit its exact ID without creating a new build |
 | `slack_channel_id` | empty        | non-secret Slack destination                    |
 
 The workflow owns Node 24. Callers cannot select an older Node runtime.
@@ -86,19 +86,22 @@ token, dependency install, EAS build, or EAS submission step.
 
 ## How it works
 
-The reusable workflow runs four jobs: `announce` → `build` → `submit` →
-`finalize`. `announce` opens the Slack root and passes its timestamp to later
-jobs. Small tested Node scripts own message content and the Slack request.
+The reusable workflow runs three jobs: `announce` → `release` → `finalize`.
+`announce` opens the Slack root and passes its timestamp to later jobs. Each
+platform gets one release leg that selects or creates one build, records its
+exact EAS ID, and submits that same ID. Small tested Node scripts own build
+selection, submission arguments, message content, and the Slack request.
 
 Every third-party GitHub action is pinned to a reviewed commit. The v3 workflow
-also checks out its helper scripts from `v3.0.0`, so the published workflow and
-tools resolve to the same implementation.
+also checks out its helper scripts from the reviewed commit named by
+`ACTIONS_REF`, so the published workflow and tools resolve to compatible
+implementations.
 
 ## Known limitation
 
-With `platform: all`, if one platform's build fails, submit is skipped for both
-platforms because submit depends on the whole build matrix. The default
-single-platform path is unaffected.
+With `platform: all`, iOS and Android run as separate matrix legs. One platform
+can reach its store even if the other platform fails. The final release status
+still fails so the incomplete platform remains visible.
 
 ## Static-site artifact boundary
 

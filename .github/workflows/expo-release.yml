@@ -18,7 +18,7 @@ on:
 
 env:
   ACTIONS_REPO: adamu-personal-apps/release-actions
-  ACTIONS_REF: v3.0.0
+  ACTIONS_REF: 117629500facdbb6782a4f8c2860a4b410f41d2f
 
 jobs:
   announce:
@@ -103,9 +103,8 @@ jobs:
           SLACK_TEXT=$(TRIGGER="$TRIGGER" node .tools/scripts/payload-cli.mjs slack-open)
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs open
 
-  build:
+  release:
     needs: announce
-    if: ${{ !inputs.skip_build }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -127,6 +126,7 @@ jobs:
       - run: npm install -g eas-cli
 
       - name: Post Slack build triggered
+        if: ${{ !inputs.skip_build }}
         continue-on-error: true
         shell: bash
         env:
@@ -139,21 +139,29 @@ jobs:
           SLACK_TEXT=$(EVENT=build STATUS=triggered node .tools/scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
-      - name: EAS build
-        id: build
+      - name: Resolve the exact EAS build
+        id: select_build
         shell: bash
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           PLATFORM: ${{ matrix.platform }}
           BUILD_PROFILE: ${{ inputs.build_profile }}
+          SKIP_BUILD: ${{ inputs.skip_build }}
         run: |
           set -euo pipefail
-          OUT=$(eas build --platform "$PLATFORM" --profile "$BUILD_PROFILE" --non-interactive --wait --json)
-          URL=$(printf '%s' "$OUT" | jq -r '.[0].buildDetailsPageUrl // empty')
+          SELECT_ARGS=(select --platform "$PLATFORM" --build-profile "$BUILD_PROFILE")
+          if [ "$SKIP_BUILD" = "true" ]; then
+            SELECT_ARGS+=(--skip-build)
+          fi
+          SELECTED=$(node .tools/scripts/exact-eas-release.mjs "${SELECT_ARGS[@]}")
+          BUILD_ID=$(printf '%s' "$SELECTED" | jq -er '.id | select(type == "string" and length > 0)')
+          URL=$(printf '%s' "$SELECTED" | jq -r '.url // empty')
+          echo "Resolved EAS build ID: $BUILD_ID"
+          echo "id=$BUILD_ID" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Post Slack build completed
-        if: success()
+        if: ${{ !inputs.skip_build && success() }}
         continue-on-error: true
         shell: bash
         env:
@@ -161,14 +169,14 @@ jobs:
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
           PLATFORM: ${{ matrix.platform }}
-          URL: ${{ steps.build.outputs.url }}
+          URL: ${{ steps.select_build.outputs.url }}
         run: |
           set -euo pipefail
           SLACK_TEXT=$(EVENT=build STATUS=completed node .tools/scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
       - name: Post Slack build failed
-        if: failure()
+        if: ${{ !inputs.skip_build && failure() }}
         continue-on-error: true
         shell: bash
         env:
@@ -176,37 +184,14 @@ jobs:
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
           PLATFORM: ${{ matrix.platform }}
-          URL: ${{ steps.build.outputs.url }}
+          URL: ${{ steps.select_build.outputs.url }}
         run: |
           set -euo pipefail
           SLACK_TEXT=$(EVENT=build STATUS=failed node .tools/scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
-  submit:
-    needs: [announce, build]
-    if: ${{ always() && (inputs.skip_build || needs.build.result == 'success') }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: ${{ fromJSON(needs.announce.outputs.platforms) }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
-      - name: Checkout release-actions tools
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
-        with:
-          repository: ${{ env.ACTIONS_REPO }}
-          ref: ${{ env.ACTIONS_REF }}
-          path: .tools
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
-        with:
-          node-version: "24"
-      - name: Install project dependencies
-        run: .tools/scripts/install-project-deps.sh
-      - run: npm install -g eas-cli
-
       - name: Post Slack build-skipped notice
-        if: ${{ inputs.skip_build }}
+        if: ${{ inputs.skip_build && steps.select_build.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         env:
@@ -217,6 +202,20 @@ jobs:
         run: |
           set -euo pipefail
           SLACK_TEXT=$(EVENT=build STATUS=skipped node .tools/scripts/payload-cli.mjs slack-update)
+          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
+
+      - name: Post Slack build selection failed
+        if: ${{ failure() && inputs.skip_build && steps.select_build.outcome == 'failure' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          SLACK_TEXT=$(EVENT=selection STATUS=failed node .tools/scripts/payload-cli.mjs slack-update)
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
       - name: Post Slack submit triggered
@@ -233,17 +232,19 @@ jobs:
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
       - name: EAS submit
+        id: submit
         shell: bash
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           PLATFORM: ${{ matrix.platform }}
           SUBMIT_PROFILE: ${{ inputs.submit_profile }}
+          BUILD_ID: ${{ steps.select_build.outputs.id }}
         run: |
           set -euo pipefail
-          eas submit --platform "$PLATFORM" --profile "$SUBMIT_PROFILE" --latest --non-interactive
+          node .tools/scripts/exact-eas-release.mjs submit --platform "$PLATFORM" --submit-profile "$SUBMIT_PROFILE" --build-id "$BUILD_ID"
 
       - name: Post Slack submit completed
-        if: success()
+        if: ${{ steps.submit.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         env:
@@ -257,7 +258,7 @@ jobs:
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
       - name: Post Slack submit failed
-        if: failure()
+        if: ${{ failure() && steps.submit.outcome == 'failure' }}
         continue-on-error: true
         shell: bash
         env:
@@ -271,7 +272,7 @@ jobs:
           SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
 
   finalize:
-    needs: [announce, build, submit]
+    needs: [announce, release]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -289,13 +290,11 @@ jobs:
         name: Resolve final release state
         shell: bash
         env:
-          BUILD_RESULT: ${{ needs.build.result }}
-          SUBMIT_RESULT: ${{ needs.submit.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
         run: |
           set -euo pipefail
-          if [ "$SUBMIT_RESULT" = "success" ]; then OK=true; STAGE="";
-          elif [ "$BUILD_RESULT" = "failure" ]; then OK=false; STAGE="build";
-          else OK=false; STAGE="submit"; fi
+          if [ "$RELEASE_RESULT" = "success" ]; then OK=true; STAGE="";
+          else OK=false; STAGE="release"; fi
           echo "ok=$OK" >> "$GITHUB_OUTPUT"
           echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
 
