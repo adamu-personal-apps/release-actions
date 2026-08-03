@@ -38,7 +38,7 @@ describe("shared v3 workflow contract", () => {
       ...workflow.matchAll(/node-version:\s*["']?24["']?/g),
     ]).toHaveLength(3);
     expect(workflow).toContain(
-      "ACTIONS_REF: 117629500facdbb6782a4f8c2860a4b410f41d2f",
+      "ACTIONS_REF: 83d713a58f5f78037fc83adeb42d237436c71dfb",
     );
   });
 
@@ -61,11 +61,29 @@ describe("shared v3 workflow contract", () => {
 
   it("submits the exact EAS build selected by the release job", () => {
     expect(workflow).toContain(
+      "APP_CONFIG=$(npx --no-install expo config --type public --json)",
+    );
+    expect(workflow).toContain(
+      "APP_IDENTIFIER=$(printf '%s' \"$APP_CONFIG\" | jq -er",
+    );
+    expect(workflow).toContain(
+      "'.ios.bundleIdentifier | select(type == \"string\" and length > 0)'",
+    );
+    expect(workflow).toContain(
+      "'.android.package | select(type == \"string\" and length > 0)'",
+    );
+    expect(workflow).toContain(
+      "APP_VERSION=$(printf '%s' \"$APP_CONFIG\" | jq -er '.version",
+    );
+    expect(workflow).toContain(
       'SELECT_ARGS=(select --platform "$PLATFORM" --build-profile "$BUILD_PROFILE")',
     );
     expect(workflow).toContain("SELECT_ARGS+=(--skip-build)");
     expect(workflow).toContain(
       'SELECTED=$(node .tools/scripts/exact-eas-release.mjs "${SELECT_ARGS[@]}")',
+    );
+    expect(workflow).toContain(
+      'SELECT_ARGS+=(--app-identifier "$APP_IDENTIFIER" --app-version "$APP_VERSION")',
     );
     expect(workflow).toContain("BUILD_ID=$(printf '%s' \"$SELECTED\" | jq -er");
     expect(workflow).toContain('echo "id=$BUILD_ID" >> "$GITHUB_OUTPUT"');
@@ -75,6 +93,9 @@ describe("shared v3 workflow contract", () => {
         '--build-id "$BUILD_ID"',
     );
     expect(workflow).toContain('Resolved EAS build ID: $BUILD_ID');
+    expect(workflow).toContain('Resolved EAS app identifier: $APP_IDENTIFIER');
+    expect(workflow).toContain('Resolved EAS app version: $APP_VERSION');
+    expect(workflow).toContain('Resolved EAS build number: $APP_BUILD_VERSION');
     expect(workflow).not.toContain("--latest");
     expect(workflow.match(/npm install -g eas-cli/g)).toHaveLength(1);
   });

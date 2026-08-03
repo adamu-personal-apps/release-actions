@@ -18,7 +18,7 @@ on:
 
 env:
   ACTIONS_REPO: adamu-personal-apps/release-actions
-  ACTIONS_REF: 117629500facdbb6782a4f8c2860a4b410f41d2f
+  ACTIONS_REF: 83d713a58f5f78037fc83adeb42d237436c71dfb
 
 jobs:
   announce:
@@ -149,14 +149,26 @@ jobs:
           SKIP_BUILD: ${{ inputs.skip_build }}
         run: |
           set -euo pipefail
+          APP_CONFIG=$(npx --no-install expo config --type public --json)
+          APP_VERSION=$(printf '%s' "$APP_CONFIG" | jq -er '.version | select(type == "string" and length > 0)')
+          if [ "$PLATFORM" = "ios" ]; then
+            APP_IDENTIFIER=$(printf '%s' "$APP_CONFIG" | jq -er '.ios.bundleIdentifier | select(type == "string" and length > 0)')
+          else
+            APP_IDENTIFIER=$(printf '%s' "$APP_CONFIG" | jq -er '.android.package | select(type == "string" and length > 0)')
+          fi
           SELECT_ARGS=(select --platform "$PLATFORM" --build-profile "$BUILD_PROFILE")
+          SELECT_ARGS+=(--app-identifier "$APP_IDENTIFIER" --app-version "$APP_VERSION")
           if [ "$SKIP_BUILD" = "true" ]; then
             SELECT_ARGS+=(--skip-build)
           fi
           SELECTED=$(node .tools/scripts/exact-eas-release.mjs "${SELECT_ARGS[@]}")
           BUILD_ID=$(printf '%s' "$SELECTED" | jq -er '.id | select(type == "string" and length > 0)')
           URL=$(printf '%s' "$SELECTED" | jq -r '.url // empty')
+          APP_BUILD_VERSION=$(printf '%s' "$SELECTED" | jq -er '.appBuildVersion | select(type == "string" and length > 0)')
           echo "Resolved EAS build ID: $BUILD_ID"
+          echo "Resolved EAS app identifier: $APP_IDENTIFIER"
+          echo "Resolved EAS app version: $APP_VERSION"
+          echo "Resolved EAS build number: $APP_BUILD_VERSION"
           echo "id=$BUILD_ID" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
