@@ -74,16 +74,10 @@ jobs:
           IN_SUMMARY: ${{ inputs.summary }}
         run: |
           set -euo pipefail
-          if [ -n "$IN_SUMMARY" ]; then
-            SUMMARY="$IN_SUMMARY"
-          else
-            CURRENT_TAG="v${VERSION}"
-            if git rev-parse "$CURRENT_TAG" >/dev/null 2>&1; then REF="$CURRENT_TAG"; else REF="HEAD"; fi
-            if PREV=$(git describe --tags --abbrev=0 "${REF}^" 2>/dev/null); then RANGE="${PREV}..${REF}"; else RANGE="${REF}"; fi
-            SUBJECTS=$(git log "$RANGE" --pretty=format:'%s')
-            SUMMARY=$(printf '%s' "$SUBJECTS" | node .tools/scripts/summary-cli.mjs)
-          fi
-          { echo 'summary<<__EOF__'; echo "$SUMMARY"; echo '__EOF__'; } >> "$GITHUB_OUTPUT"
+          CURRENT_TAG="v${VERSION}"
+          if git rev-parse "$CURRENT_TAG" >/dev/null 2>&1; then REF="$CURRENT_TAG"; else REF="HEAD"; fi
+          if PREV=$(git describe --tags --abbrev=0 "${REF}^" 2>/dev/null); then RANGE="${PREV}..${REF}"; else RANGE="${REF}"; fi
+          git log "$RANGE" --pretty=format:'%s' | node .tools/scripts/release-summary-output.mjs
 
       - id: open_slack
         name: Open Slack release thread

@@ -59,6 +59,15 @@ describe("shared v3 workflow contract", () => {
     expect(workflow).toContain("needs.announce.outputs.slack_thread_ts");
   });
 
+  it("frames supplied summaries through the collision-safe output helper", () => {
+    expect(workflow).toContain(
+      "node .tools/scripts/release-summary-output.mjs",
+    );
+    expect(workflow).not.toContain("summary<<__EOF__");
+    expect(workflow).not.toContain('echo "$SUMMARY"');
+    expect(workflow).toContain("git log \"$RANGE\" --pretty=format:'%s'");
+  });
+
   it("submits the exact EAS build selected by the release job", () => {
     expect(workflow).toContain(
       "APP_CONFIG=$(npx --no-install expo config --type public --json)",
