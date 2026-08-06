@@ -59,10 +59,19 @@ function assertPlatform(platform) {
 
 export function resolveBuildSelection(
   output,
-  { expectedAppIdentifier, expectedAppVersion },
+  {
+    expectedProjectId,
+    expectedAppVersion,
+    expectedGitCommitHash,
+    expectedPlatform,
+    expectedBuildProfile,
+  },
 ) {
-  if (!expectedAppIdentifier) throw new Error("Expected app identifier is required");
+  if (!expectedProjectId) throw new Error("Expected EAS project ID is required");
   if (!expectedAppVersion) throw new Error("Expected app version is required");
+  if (!expectedGitCommitHash) throw new Error("Expected git commit is required");
+  assertPlatform(expectedPlatform);
+  if (!expectedBuildProfile) throw new Error("Expected build profile is required");
   let builds;
   try {
     builds = JSON.parse(output);
@@ -74,12 +83,33 @@ export function resolveBuildSelection(
   if (!build || typeof build.id !== "string" || build.id.length === 0) {
     throw new Error("EAS did not return one build with a non-empty ID");
   }
-  if (typeof build.appIdentifier !== "string" || !build.appIdentifier) {
-    throw new Error("EAS build app identifier is missing");
+  if (typeof build.project?.id !== "string" || !build.project.id) {
+    throw new Error("EAS build project ID is missing");
   }
-  if (build.appIdentifier !== expectedAppIdentifier) {
+  if (build.project.id !== expectedProjectId) {
     throw new Error(
-      `EAS build app identifier mismatch: expected ${expectedAppIdentifier}, received ${build.appIdentifier}`,
+      `EAS build project ID mismatch: expected ${expectedProjectId}, received ${build.project.id}`,
+    );
+  }
+  if (build.platform?.toLowerCase() !== expectedPlatform) {
+    throw new Error(
+      `EAS build platform mismatch: expected ${expectedPlatform}, received ${build.platform ?? "missing"}`,
+    );
+  }
+  if (build.buildProfile !== expectedBuildProfile) {
+    throw new Error(
+      `EAS build profile mismatch: expected ${expectedBuildProfile}, received ${build.buildProfile ?? "missing"}`,
+    );
+  }
+  if (build.distribution !== "STORE") {
+    throw new Error("EAS build distribution is not STORE");
+  }
+  if (build.status !== "FINISHED") {
+    throw new Error("EAS build status is not FINISHED");
+  }
+  if (build.gitCommitHash !== expectedGitCommitHash) {
+    throw new Error(
+      `EAS build commit mismatch: expected ${expectedGitCommitHash}, received ${build.gitCommitHash ?? "missing"}`,
     );
   }
   if (typeof build.appVersion !== "string" || !build.appVersion) {
@@ -96,14 +126,22 @@ export function resolveBuildSelection(
 
   return {
     id: build.id,
-    url:
-      typeof build.buildDetailsPageUrl === "string"
-        ? build.buildDetailsPageUrl
-        : "",
-    appIdentifier: build.appIdentifier,
+    url: buildDetailsUrl(build),
+    projectId: build.project.id,
     appVersion: build.appVersion,
     appBuildVersion: build.appBuildVersion,
   };
+}
+
+function buildDetailsUrl(build) {
+  if (typeof build.buildDetailsPageUrl === "string") {
+    return build.buildDetailsPageUrl;
+  }
+  const owner = build.project?.ownerAccount?.name;
+  const slug = build.project?.slug;
+  return typeof owner === "string" && typeof slug === "string"
+    ? `https://expo.dev/accounts/${owner}/projects/${slug}/builds/${build.id}`
+    : "";
 }
 
 export function runEasCommand(command, args) {
@@ -129,8 +167,9 @@ export async function selectExactBuild({
   platform,
   buildProfile,
   skipBuild,
-  expectedAppIdentifier,
+  expectedProjectId,
   expectedAppVersion,
+  expectedGitCommitHash,
   runCommand = runEasCommand,
 }) {
   const output = await runCommand(
@@ -138,8 +177,11 @@ export async function selectExactBuild({
     selectionArguments({ platform, buildProfile, skipBuild }),
   );
   return resolveBuildSelection(output, {
-    expectedAppIdentifier,
+    expectedProjectId,
     expectedAppVersion,
+    expectedGitCommitHash,
+    expectedPlatform: platform,
+    expectedBuildProfile: buildProfile,
   });
 }
 
@@ -157,8 +199,9 @@ async function main(args) {
       platform,
       buildProfile: readOption(options, "--build-profile"),
       skipBuild: options.includes("--skip-build"),
-      expectedAppIdentifier: readOption(options, "--app-identifier"),
+      expectedProjectId: readOption(options, "--project-id"),
       expectedAppVersion: readOption(options, "--app-version"),
+      expectedGitCommitHash: readOption(options, "--git-commit-hash"),
     });
     process.stdout.write(`${JSON.stringify(selection)}\n`);
     return;

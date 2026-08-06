@@ -87,6 +87,12 @@ describe("shared v3 workflow contract", () => {
       "APP_VERSION=$(printf '%s' \"$APP_CONFIG\" | jq -er '.version",
     );
     expect(workflow).toContain(
+      "PROJECT_ID=$(printf '%s' \"$APP_CONFIG\" | jq -er '.extra.eas.projectId",
+    );
+    expect(workflow).toContain("GIT_COMMIT_HASH=$(git rev-parse HEAD)");
+    expect(workflow).toContain('--project-id "$PROJECT_ID"');
+    expect(workflow).toContain('--git-commit-hash "$GIT_COMMIT_HASH"');
+    expect(workflow).toContain(
       'SELECT_ARGS=(select --platform "$PLATFORM" --build-profile "$BUILD_PROFILE")',
     );
     expect(workflow).toContain("SELECT_ARGS+=(--skip-build)");
@@ -94,7 +100,7 @@ describe("shared v3 workflow contract", () => {
       'SELECTED=$(node .tools/scripts/exact-eas-release.mjs "${SELECT_ARGS[@]}")',
     );
     expect(workflow).toContain(
-      'SELECT_ARGS+=(--app-identifier "$APP_IDENTIFIER" --app-version "$APP_VERSION")',
+      'SELECT_ARGS+=(--project-id "$PROJECT_ID" --app-version "$APP_VERSION")',
     );
     expect(workflow).toContain("BUILD_ID=$(printf '%s' \"$SELECTED\" | jq -er");
     expect(workflow).toContain('echo "id=$BUILD_ID" >> "$GITHUB_OUTPUT"');

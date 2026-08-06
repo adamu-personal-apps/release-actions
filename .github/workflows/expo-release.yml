@@ -145,13 +145,16 @@ jobs:
           set -euo pipefail
           APP_CONFIG=$(npx --no-install expo config --type public --json)
           APP_VERSION=$(printf '%s' "$APP_CONFIG" | jq -er '.version | select(type == "string" and length > 0)')
+          PROJECT_ID=$(printf '%s' "$APP_CONFIG" | jq -er '.extra.eas.projectId | select(type == "string" and length > 0)')
+          GIT_COMMIT_HASH=$(git rev-parse HEAD)
           if [ "$PLATFORM" = "ios" ]; then
             APP_IDENTIFIER=$(printf '%s' "$APP_CONFIG" | jq -er '.ios.bundleIdentifier | select(type == "string" and length > 0)')
           else
             APP_IDENTIFIER=$(printf '%s' "$APP_CONFIG" | jq -er '.android.package | select(type == "string" and length > 0)')
           fi
           SELECT_ARGS=(select --platform "$PLATFORM" --build-profile "$BUILD_PROFILE")
-          SELECT_ARGS+=(--app-identifier "$APP_IDENTIFIER" --app-version "$APP_VERSION")
+          SELECT_ARGS+=(--project-id "$PROJECT_ID" --app-version "$APP_VERSION")
+          SELECT_ARGS+=(--git-commit-hash "$GIT_COMMIT_HASH")
           if [ "$SKIP_BUILD" = "true" ]; then
             SELECT_ARGS+=(--skip-build)
           fi
@@ -161,6 +164,8 @@ jobs:
           APP_BUILD_VERSION=$(printf '%s' "$SELECTED" | jq -er '.appBuildVersion | select(type == "string" and length > 0)')
           echo "Resolved EAS build ID: $BUILD_ID"
           echo "Resolved EAS app identifier: $APP_IDENTIFIER"
+          echo "Resolved EAS project ID: $PROJECT_ID"
+          echo "Resolved EAS git commit: $GIT_COMMIT_HASH"
           echo "Resolved EAS app version: $APP_VERSION"
           echo "Resolved EAS build number: $APP_BUILD_VERSION"
           echo "id=$BUILD_ID" >> "$GITHUB_OUTPUT"

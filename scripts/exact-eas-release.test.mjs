@@ -10,12 +10,28 @@ import {
 const selectedBuildJson = JSON.stringify([
   {
     id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
-    buildDetailsPageUrl: "https://expo.dev/builds/8e32215c",
-    appIdentifier: "com.shotstep.shotstep",
+    project: {
+      id: "2a4c867f-b521-4278-9a63-a597149b3b1d",
+      slug: "shotstep",
+      ownerAccount: { name: "progress-companion-app" },
+    },
+    platform: "IOS",
+    buildProfile: "production",
+    distribution: "STORE",
+    status: "FINISHED",
+    gitCommitHash: "5482acac295c130944a5bb958ceefa64dd7f9672",
     appVersion: "0.1.7",
     appBuildVersion: "42",
   },
 ]);
+
+const expectedBuild = {
+  expectedProjectId: "2a4c867f-b521-4278-9a63-a597149b3b1d",
+  expectedAppVersion: "0.1.7",
+  expectedGitCommitHash: "5482acac295c130944a5bb958ceefa64dd7f9672",
+  expectedPlatform: "ios",
+  expectedBuildProfile: "production",
+};
 
 describe("exact EAS release commands", () => {
   it.each(["ios", "android"])(
@@ -74,14 +90,15 @@ describe("exact EAS release commands", () => {
         platform: "ios",
         buildProfile: "production",
         skipBuild: false,
-        expectedAppIdentifier: "com.shotstep.shotstep",
+        expectedProjectId: expectedBuild.expectedProjectId,
         expectedAppVersion: "0.1.7",
+        expectedGitCommitHash: expectedBuild.expectedGitCommitHash,
         runCommand,
       }),
     ).resolves.toEqual({
       id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
-      url: "https://expo.dev/builds/8e32215c",
-      appIdentifier: "com.shotstep.shotstep",
+      url: "https://expo.dev/accounts/progress-companion-app/projects/shotstep/builds/8e32215c-7061-46e4-b15d-08cd2f590a2a",
+      projectId: "2a4c867f-b521-4278-9a63-a597149b3b1d",
       appVersion: "0.1.7",
       appBuildVersion: "42",
     });
@@ -90,10 +107,7 @@ describe("exact EAS release commands", () => {
 
   it("fails closed when EAS returns no selected build", () => {
     expect(() =>
-      resolveBuildSelection("[]", {
-        expectedAppIdentifier: "com.shotstep.shotstep",
-        expectedAppVersion: "0.1.7",
-      }),
+      resolveBuildSelection("[]", expectedBuild),
     ).toThrow(
       "EAS did not return one build with a non-empty ID",
     );
@@ -103,33 +117,55 @@ describe("exact EAS release commands", () => {
     expect(() =>
       resolveBuildSelection(
         JSON.stringify([{ id: "8e32215c-7061-46e4-b15d-08cd2f590a2a" }]),
-        {
-          expectedAppIdentifier: "com.shotstep.shotstep",
-          expectedAppVersion: "0.1.7",
-        },
+        expectedBuild,
       ),
-    ).toThrow("EAS build app identifier is missing");
+    ).toThrow("EAS build project ID is missing");
   });
 
-  it("fails closed when the selected build has the wrong app identifier", () => {
+  it("fails closed when the selected build has the wrong EAS project", () => {
     expect(() =>
       resolveBuildSelection(
         JSON.stringify([
           {
-            id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
-            appIdentifier: "com.example.old-app",
-            appVersion: "0.1.7",
-            appBuildVersion: "42",
+            ...JSON.parse(selectedBuildJson)[0],
+            project: { id: "wrong-project" },
           },
         ]),
-        {
-          expectedAppIdentifier: "com.shotstep.shotstep",
-          expectedAppVersion: "0.1.7",
-        },
+        expectedBuild,
       ),
     ).toThrow(
-      "EAS build app identifier mismatch: expected com.shotstep.shotstep, received com.example.old-app",
+      "EAS build project ID mismatch: expected 2a4c867f-b521-4278-9a63-a597149b3b1d, received wrong-project",
     );
+  });
+
+  it("fails closed when the selected build is from the wrong commit", () => {
+    expect(() =>
+      resolveBuildSelection(
+        JSON.stringify([
+          {
+            ...JSON.parse(selectedBuildJson)[0],
+            gitCommitHash: "wrong-commit",
+          },
+        ]),
+        expectedBuild,
+      ),
+    ).toThrow("EAS build commit mismatch");
+  });
+
+  it.each([
+    ["platform", "ANDROID", "EAS build platform mismatch"],
+    ["buildProfile", "preview", "EAS build profile mismatch"],
+    ["distribution", "INTERNAL", "EAS build distribution is not STORE"],
+    ["status", "ERRORED", "EAS build status is not FINISHED"],
+  ])("fails closed when %s has the wrong value", (field, value, message) => {
+    expect(() =>
+      resolveBuildSelection(
+        JSON.stringify([
+          { ...JSON.parse(selectedBuildJson)[0], [field]: value },
+        ]),
+        expectedBuild,
+      ),
+    ).toThrow(message);
   });
 
   it("fails closed when the selected build has the wrong app version", () => {
@@ -137,16 +173,12 @@ describe("exact EAS release commands", () => {
       resolveBuildSelection(
         JSON.stringify([
           {
-            id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
-            appIdentifier: "com.shotstep.shotstep",
+            ...JSON.parse(selectedBuildJson)[0],
             appVersion: "0.1.6",
             appBuildVersion: "41",
           },
         ]),
-        {
-          expectedAppIdentifier: "com.shotstep.shotstep",
-          expectedAppVersion: "0.1.7",
-        },
+        expectedBuild,
       ),
     ).toThrow("EAS build app version mismatch: expected 0.1.7, received 0.1.6");
   });
@@ -156,15 +188,11 @@ describe("exact EAS release commands", () => {
       resolveBuildSelection(
         JSON.stringify([
           {
-            id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
-            appIdentifier: "com.shotstep.shotstep",
-            appVersion: "0.1.7",
+            ...JSON.parse(selectedBuildJson)[0],
+            appBuildVersion: undefined,
           },
         ]),
-        {
-          expectedAppIdentifier: "com.shotstep.shotstep",
-          expectedAppVersion: "0.1.7",
-        },
+        expectedBuild,
       ),
     ).toThrow("EAS build number is missing");
   });
