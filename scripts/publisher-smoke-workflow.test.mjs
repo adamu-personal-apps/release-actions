@@ -42,6 +42,7 @@ describe("hosted publisher smoke workflow", () => {
     expect(workflow).toContain("escaping_validated=true");
     expect(workflow).toContain("length_limit_validated=true");
     expect(workflow).toContain("rendered.length !== 4000");
+    expect(workflow).toContain('summary.replace(/\\r?\\n+$/u, "")');
     expect(workflow).toContain("@here");
     expect(workflow).toContain("third-shot drop");
   });

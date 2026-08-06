@@ -69,12 +69,13 @@ jobs:
           RENDERED="$SLACK_TEXT" node -e '
             const summary = process.env.SUMMARY;
             const rendered = process.env.RENDERED;
-            const escaped = summary
+            const normalized = summary.replace(/\r?\n+$/u, "");
+            const escaped = normalized
               .replaceAll("&", "&amp;")
               .replaceAll("<", "&lt;")
               .replaceAll(">", "&gt;")
               .replace(/@(channel|here|everyone)\b/giu, "@\u200b$1");
-            if (!summary.includes("\n") || !rendered.includes(escaped) || rendered.length > 4000) {
+            if (!normalized.includes("\n") || !rendered.includes(escaped) || rendered.length > 4000) {
               process.exit(1);
             }
           '
