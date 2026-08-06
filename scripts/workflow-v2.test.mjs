@@ -9,6 +9,8 @@ const workflow = await readFile(workflowUrl, "utf8");
 
 const CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_SHA = "820762786026740c76f36085b0efc47a31fe5020";
+const SUMMARY_SAFE_TOOLS_SHA =
+  "59703a10906efcf4e97f8c60c284ad50264c13b2";
 
 function actionRefs(action) {
   return [
@@ -38,7 +40,7 @@ describe("shared v3 workflow contract", () => {
       ...workflow.matchAll(/node-version:\s*["']?24["']?/g),
     ]).toHaveLength(3);
     expect(workflow).toContain(
-      "ACTIONS_REF: 83d713a58f5f78037fc83adeb42d237436c71dfb",
+      `ACTIONS_REF: ${SUMMARY_SAFE_TOOLS_SHA}`,
     );
   });
 
