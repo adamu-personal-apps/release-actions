@@ -75,9 +75,11 @@ The workflow owns Node 24. Callers cannot select an older Node runtime.
 ## Hosted publisher proof
 
 `publisher-smoke.yml` is a manual GitHub-hosted proof for a release-actions
-candidate. It opens one Slack test thread, posts a pickleball-themed lifecycle,
-and exercises an expected Slack warning with an invalid channel. The warning
-step must continue successfully.
+candidate. Its required summary input becomes the root of one Slack test thread.
+Use three to seven reviewed, pickleball-themed accomplishment bullets. The run
+checks multiline rendering, Slack escaping and length limits, posts the threaded
+lifecycle, and exercises an expected Slack warning with an invalid channel. The
+warning step must continue successfully.
 
 The proof repository needs `SLACK_BOT_TOKEN` as an Actions secret and
 `RELEASE_SLACK_CHANNEL_ID` as an Actions variable. The workflow records its

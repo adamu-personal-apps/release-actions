@@ -13,6 +13,8 @@ const SETUP_NODE_SHA = "820762786026740c76f36085b0efc47a31fe5020";
 describe("hosted publisher smoke workflow", () => {
   it("is manual, read-only to GitHub, and records the exact candidate commit", () => {
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toMatch(/summary:\n\s+description:/);
+    expect(workflow).toMatch(/summary:\n(?:\s+.*\n)*?\s+required: true/);
     expect(workflow).toContain("contents: read");
     expect(workflow).toContain("github.sha");
     expect(workflow).toContain("candidate_commit=");
@@ -26,11 +28,22 @@ describe("hosted publisher smoke workflow", () => {
   });
 
   it("publishes a realistic proof lifecycle to one Slack thread", () => {
-    expect(workflow).toContain("third-shot drop");
+    expect(workflow).toContain("SUMMARY: ${{ inputs.summary }}");
+    expect(workflow).not.toContain("SUMMARY: Coach proof");
     expect(workflow.match(/slack-cli\.mjs open/g)).toHaveLength(2);
     expect(workflow.match(/slack-cli\.mjs reply/g)).toHaveLength(5);
     expect(workflow).toContain("SLACK_THREAD_TS:");
     expect(workflow).not.toMatch(/discord/i);
+  });
+
+  it("validates multiline rendering, escaping, and the Slack text limit on the hosted runner", () => {
+    expect(workflow).toContain("Validate hosted changelog rendering");
+    expect(workflow).toContain("multiline_summary_validated=true");
+    expect(workflow).toContain("escaping_validated=true");
+    expect(workflow).toContain("length_limit_validated=true");
+    expect(workflow).toContain("rendered.length !== 4000");
+    expect(workflow).toContain("@here");
+    expect(workflow).toContain("third-shot drop");
   });
 
   it("uses repository configuration without exposing credentials", () => {

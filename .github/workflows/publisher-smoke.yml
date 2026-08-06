@@ -2,6 +2,11 @@ name: Publisher smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      summary:
+        description: Reviewed three-to-seven-bullet pickleball changelog
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,7 +20,7 @@ env:
   VERSION: publisher-smoke-${{ github.run_id }}-${{ github.run_attempt }}
   PROFILE: personal
   TRIGGER: hosted publisher smoke
-  SUMMARY: Coach proof - practice a controlled third-shot drop from the transition zone.
+  SUMMARY: ${{ inputs.summary }}
   PLATFORM: ios
   SLACK_CHANNEL_ID: ${{ vars.RELEASE_SLACK_CHANNEL_ID }}
 
@@ -51,6 +56,47 @@ jobs:
           set -euo pipefail
           test -n "$SLACK_BOT_TOKEN"
           test -n "$SLACK_CHANNEL_ID"
+
+      - id: changelog_contract
+        name: Validate hosted changelog rendering
+        shell: bash
+        run: |
+          set -euo pipefail
+          BULLET_COUNT=$(printf '%s\n' "$SUMMARY" | awk '/^- / { count += 1 } END { print count + 0 }')
+          test "$BULLET_COUNT" -ge 3
+          test "$BULLET_COUNT" -le 7
+          SLACK_TEXT=$(node scripts/payload-cli.mjs slack-open)
+          RENDERED="$SLACK_TEXT" node -e '
+            const summary = process.env.SUMMARY;
+            const rendered = process.env.RENDERED;
+            const escaped = summary
+              .replaceAll("&", "&amp;")
+              .replaceAll("<", "&lt;")
+              .replaceAll(">", "&gt;")
+              .replace(/@(channel|here|everyone)\b/giu, "@\u200b$1");
+            if (!summary.includes("\n") || !rendered.includes(escaped) || rendered.length > 4000) {
+              process.exit(1);
+            }
+          '
+          echo "multiline_summary_validated=true" >> "$GITHUB_OUTPUT"
+
+          ESCAPE_SUMMARY='- Coaches keep third-shot drop notes for @here without broadcasting <all courts> & spectators.'
+          ESCAPED=$(SUMMARY="$ESCAPE_SUMMARY" node scripts/payload-cli.mjs slack-open)
+          RENDERED="$ESCAPED" node -e '
+            const rendered = process.env.RENDERED;
+            if (rendered.includes("@here") || rendered.includes("<all courts>") || !rendered.includes("&amp;")) {
+              process.exit(1);
+            }
+          '
+          echo "escaping_validated=true" >> "$GITHUB_OUTPUT"
+
+          LONG_SUMMARY=$(node -e 'process.stdout.write("- " + "serve return ".repeat(500))')
+          LONG_RENDERED=$(SUMMARY="$LONG_SUMMARY" node scripts/payload-cli.mjs slack-open)
+          RENDERED="$LONG_RENDERED" node -e '
+            const rendered = process.env.RENDERED;
+            if (rendered.length !== 4000 || !rendered.endsWith("…")) process.exit(1);
+          '
+          echo "length_limit_validated=true" >> "$GITHUB_OUTPUT"
 
       - id: slack_root
         name: Open Slack proof thread
@@ -135,11 +181,19 @@ jobs:
       - name: Confirm Slack warning did not fail the proof
         shell: bash
         env:
+          MULTILINE_SUMMARY_VALIDATED: ${{ steps.changelog_contract.outputs.multiline_summary_validated }}
+          ESCAPING_VALIDATED: ${{ steps.changelog_contract.outputs.escaping_validated }}
+          LENGTH_LIMIT_VALIDATED: ${{ steps.changelog_contract.outputs.length_limit_validated }}
           WARNING_PATH_COMPLETED: ${{ steps.slack_warning.outputs.warning_path_completed }}
         run: |
           set -euo pipefail
+          test "$MULTILINE_SUMMARY_VALIDATED" = "true"
+          test "$ESCAPING_VALIDATED" = "true"
+          test "$LENGTH_LIMIT_VALIDATED" = "true"
           test "$WARNING_PATH_COMPLETED" = "true"
           {
+            echo "- Supplied multiline changelog: rendered and posted as the root"
+            echo "- Slack escaping and 4,000-character limit: validated"
             echo "- Slack lifecycle: one root plus five replies"
             echo "- Slack failure path: warning recorded; proof continued"
             echo "- No EAS build or submission was started."
