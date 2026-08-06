@@ -18,7 +18,7 @@ on:
 
 env:
   ACTIONS_REPO: adamu-personal-apps/release-actions
-  ACTIONS_REF: 59703a10906efcf4e97f8c60c284ad50264c13b2
+  ACTIONS_REF: f2ccebe7fc456ebf0a1dd7881dfa725f729ce3d6
 
 jobs:
   announce:
