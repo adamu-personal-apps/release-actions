@@ -56,6 +56,11 @@ async function writePickleballBuild(workspace, extraSource = "") {
       await writeFile("dist/index.html", "<h1>Third-shot drop practice</h1>\\n");
       await writeFile("dist/.well-known/apple-app-site-association", "pickleball-coach-app\\n");
       await writeFile("dist/provider-access.txt", process.env.CLOUDFLARE_API_TOKEN ?? "unavailable");
+      await writeFile("dist/public-release-config.txt", [
+        process.env.SHOTSTEP_ANDROID_RELEASE_SHA256 ?? "missing",
+        process.env.EXPO_PUBLIC_SUPABASE_URL ?? "missing",
+        process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "missing",
+      ].join("\\n"));
       ${extraSource}
     `,
   );
@@ -83,6 +88,9 @@ describe("static-site artifact builder", () => {
         ...process.env,
         CLOUDFLARE_API_TOKEN: "cloudflare-provider-credential",
         CLOUDFLARE_ACCOUNT_ID: "provider-account",
+        SHOTSTEP_ANDROID_RELEASE_SHA256: "sha256:third-shot-drop",
+        EXPO_PUBLIC_SUPABASE_URL: "https://pickleball.example.supabase.co",
+        EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "public-pickleball-key",
       },
     });
 
@@ -95,6 +103,9 @@ describe("static-site artifact builder", () => {
       environment: {
         ...process.env,
         CLOUDFLARE_API_TOKEN: "cloudflare-provider-credential",
+        SHOTSTEP_ANDROID_RELEASE_SHA256: "sha256:third-shot-drop",
+        EXPO_PUBLIC_SUPABASE_URL: "https://pickleball.example.supabase.co",
+        EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "public-pickleball-key",
       },
     });
 
@@ -114,6 +125,13 @@ describe("static-site artifact builder", () => {
     expect(
       await readFile(join(workspace, "site-package-one/site/provider-access.txt"), "utf8"),
     ).toBe("unavailable");
+    expect(
+      await readFile(join(workspace, "site-package-one/site/public-release-config.txt"), "utf8"),
+    ).toBe([
+      "sha256:third-shot-drop",
+      "https://pickleball.example.supabase.co",
+      "public-pickleball-key",
+    ].join("\n"));
     expect(
       (await lstat(join(workspace, "site-package-one/manifest.json"))).mode &
         0o222,
