@@ -18,6 +18,7 @@ const EVENT_EMOJI = {
   'deploy:triggered': '🚀',
   'deploy:completed': '✅',
   'deploy:failed': '❌',
+  'proof:completed': '✅',
 };
 
 const EVENT_TEXT = {
@@ -32,6 +33,7 @@ const EVENT_TEXT = {
   'deploy:triggered': 'Cloudflare Pages deployment triggered',
   'deploy:completed': 'Cloudflare Pages deployment completed',
   'deploy:failed': 'Cloudflare Pages deployment failed',
+  'proof:completed': 'hosted routing proof completed; no release artifact was delivered',
 };
 
 function truncate(text, limit) {

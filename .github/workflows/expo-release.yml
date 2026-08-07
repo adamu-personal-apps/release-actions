@@ -4,29 +4,46 @@ on:
   workflow_call:
     inputs:
       project_name: { type: string, required: true }
-      profile: { type: string, required: true } # business | personal (label only)
-      platform: { type: string, default: ios } # ios | android | all
+      profile: { type: string, required: true } # Display label only; never controls notification routing.
+      platform: { type: string, default: ios } # Legacy mobile selection: ios | android | all.
+      artifacts: { type: string, required: false } # Canonical subset: ios,android,site.
+      business_owner: { type: string, required: false } # Expo manifest owner that uses Slack.
       build_profile: { type: string, default: production }
       submit_profile: { type: string, default: production }
       version: { type: string, required: false }
       summary: { type: string, required: false }
       skip_build: { type: boolean, default: false }
       slack_channel_id: { type: string, required: false }
+      site_build_command: { type: string, required: false }
+      site_output_directory: { type: string, required: false }
+      site_package_directory: { type: string, required: false }
+      site_project_name: { type: string, required: false }
+      site_deployment_branch: { type: string, required: false }
+      site_production_branch: { type: string, required: false }
+      site_android_release_sha256: { type: string, required: false }
+      site_supabase_url: { type: string, required: false }
+      site_supabase_publishable_key: { type: string, required: false }
     secrets:
-      EXPO_TOKEN: { required: true }
+      EXPO_TOKEN: { required: false }
       SLACK_BOT_TOKEN: { required: false }
+      DISCORD_WEBHOOK_URL: { required: false }
+      ANDROID_SERVICE_ACCOUNT_JSON: { required: false }
+      CLOUDFLARE_API_TOKEN: { required: false }
+      CLOUDFLARE_ACCOUNT_ID: { required: false }
 
 env:
   ACTIONS_REPO: adamu-personal-apps/release-actions
-  ACTIONS_REF: f2ccebe7fc456ebf0a1dd7881dfa725f729ce3d6
+  ACTIONS_REF: ae1f0e09dc323e528503074c32b107e6c06cedc7
 
 jobs:
-  announce:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
-      slack_thread_ts: ${{ steps.open_slack.outputs.thread_ts }}
+      mobile_platforms: ${{ steps.plan.outputs.mobile_platforms }}
+      notification_publisher: ${{ steps.plan.outputs.notification_publisher }}
+      should_deploy_site: ${{ steps.plan.outputs.should_deploy_site }}
+      summary: ${{ steps.sum.outputs.summary }}
       version: ${{ steps.ver.outputs.version }}
-      platforms: ${{ steps.plat.outputs.platforms }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
         with: { fetch-depth: 0 }
@@ -39,7 +56,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
         with:
           node-version: "24"
-
+      - name: Install project dependencies
+        run: .tools/scripts/install-project-deps.sh
       - id: ver
         shell: bash
         env:
@@ -52,21 +70,6 @@ jobs:
           elif [ "$REF_TYPE" = "tag" ]; then V="${REF_NAME#v}"
           else V=$(node -p "require('./package.json').version"); fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
-
-      - id: plat
-        shell: bash
-        env:
-          PLATFORM: ${{ inputs.platform }}
-        run: |
-          set -euo pipefail
-          case "$PLATFORM" in
-            ios) P='["ios"]';;
-            android) P='["android"]';;
-            all) P='["ios","android"]';;
-            *) echo "bad platform: $PLATFORM" >&2; exit 1;;
-          esac
-          echo "platforms=$P" >> "$GITHUB_OUTPUT"
-
       - id: sum
         shell: bash
         env:
@@ -78,32 +81,68 @@ jobs:
           if git rev-parse "$CURRENT_TAG" >/dev/null 2>&1; then REF="$CURRENT_TAG"; else REF="HEAD"; fi
           if PREV=$(git describe --tags --abbrev=0 "${REF}^" 2>/dev/null); then RANGE="${PREV}..${REF}"; else RANGE="${REF}"; fi
           git log "$RANGE" --pretty=format:'%s' | node .tools/scripts/release-summary-output.mjs
+      - id: plan
+        name: Resolve artifact plan and notification publisher
+        shell: bash
+        env:
+          INPUT_ARTIFACTS: ${{ inputs.artifacts }}
+          INPUT_BUSINESS_OWNER: ${{ inputs.business_owner }}
+          INPUT_PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -euo pipefail
+          APP_CONFIG=$(npx --no-install expo config --type public --json)
+          EXPO_OWNER=$(printf '%s' "$APP_CONFIG" | jq -er '.owner | select(type == "string" and length > 0)')
+          PLAN=$(EXPO_OWNER="$EXPO_OWNER" node .tools/scripts/release-artifact-routing.mjs)
+          mobile_platforms=$(printf '%s' "$PLAN" | jq -c '.mobilePlatforms')
+          should_deploy_site=$(printf '%s' "$PLAN" | jq -r '.shouldDeploySite')
+          notification_publisher=$(printf '%s' "$PLAN" | jq -r '.notificationPublisher')
+          echo "mobile_platforms=$mobile_platforms" >> "$GITHUB_OUTPUT"
+          echo "should_deploy_site=$should_deploy_site" >> "$GITHUB_OUTPUT"
+          echo "notification_publisher=$notification_publisher" >> "$GITHUB_OUTPUT"
 
-      - id: open_slack
-        name: Open Slack release thread
+  announce:
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      discord_thread_id: ${{ steps.open_notification.outputs.thread_id }}
+      slack_thread_ts: ${{ steps.open_notification.outputs.thread_ts }}
+    steps:
+      - name: Checkout release-actions tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
+        with:
+          repository: ${{ env.ACTIONS_REPO }}
+          ref: ${{ env.ACTIONS_REF }}
+          path: .tools
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
+        with:
+          node-version: "24"
+      - id: open_notification
+        name: Open selected release notification thread
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PROJECT_NAME: ${{ inputs.project_name }}
-          VERSION: ${{ steps.ver.outputs.version }}
           PROFILE: ${{ inputs.profile }}
-          SUMMARY: ${{ steps.sum.outputs.summary }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+          SUMMARY: ${{ needs.prepare.outputs.summary }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           if [ "$IS_MANUAL" = "true" ]; then TRIGGER="manual"; else TRIGGER="auto: tag v${VERSION}"; fi
-          SLACK_TEXT=$(TRIGGER="$TRIGGER" node .tools/scripts/payload-cli.mjs slack-open)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs open
+          TRIGGER="$TRIGGER" node .tools/scripts/release-notifier.mjs open
 
   release:
-    needs: announce
+    needs: [prepare, announce]
+    if: ${{ needs.prepare.outputs.mobile_platforms != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ fromJSON(needs.announce.outputs.platforms) }}
+        platform: ${{ fromJSON(needs.prepare.outputs.mobile_platforms) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
       - name: Checkout release-actions tools
@@ -118,21 +157,21 @@ jobs:
       - name: Install project dependencies
         run: .tools/scripts/install-project-deps.sh
       - run: npm install -g eas-cli
-
-      - name: Post Slack build triggered
+      - name: Post build triggered
         if: ${{ !inputs.skip_build }}
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: build
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          SLACK_TEXT=$(EVENT=build STATUS=triggered node .tools/scripts/payload-cli.mjs slack-update)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
+          STATUS: triggered
+        run: node .tools/scripts/release-notifier.mjs reply
       - name: Resolve the exact EAS build
         id: select_build
         shell: bash
@@ -143,6 +182,7 @@ jobs:
           SKIP_BUILD: ${{ inputs.skip_build }}
         run: |
           set -euo pipefail
+          test -n "$EXPO_TOKEN"
           APP_CONFIG=$(npx --no-install expo config --type public --json)
           APP_VERSION=$(printf '%s' "$APP_CONFIG" | jq -er '.version | select(type == "string" and length > 0)')
           PROJECT_ID=$(printf '%s' "$APP_CONFIG" | jq -er '.extra.eas.projectId | select(type == "string" and length > 0)')
@@ -155,9 +195,7 @@ jobs:
           SELECT_ARGS=(select --platform "$PLATFORM" --build-profile "$BUILD_PROFILE")
           SELECT_ARGS+=(--project-id "$PROJECT_ID" --app-version "$APP_VERSION")
           SELECT_ARGS+=(--git-commit-hash "$GIT_COMMIT_HASH")
-          if [ "$SKIP_BUILD" = "true" ]; then
-            SELECT_ARGS+=(--skip-build)
-          fi
+          if [ "$SKIP_BUILD" = "true" ]; then SELECT_ARGS+=(--skip-build); fi
           SELECTED=$(node .tools/scripts/exact-eas-release.mjs "${SELECT_ARGS[@]}")
           BUILD_ID=$(printf '%s' "$SELECTED" | jq -er '.id | select(type == "string" and length > 0)')
           URL=$(printf '%s' "$SELECTED" | jq -r '.url // empty')
@@ -170,120 +208,234 @@ jobs:
           echo "Resolved EAS build number: $APP_BUILD_VERSION"
           echo "id=$BUILD_ID" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
-
-      - name: Post Slack build completed
-        if: ${{ !inputs.skip_build && success() }}
+      - name: Post build completed
+        if: ${{ !inputs.skip_build && steps.select_build.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: build
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          PLATFORM: ${{ matrix.platform }}
+          STATUS: completed
           URL: ${{ steps.select_build.outputs.url }}
-        run: |
-          set -euo pipefail
-          SLACK_TEXT=$(EVENT=build STATUS=completed node .tools/scripts/payload-cli.mjs slack-update)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
-      - name: Post Slack build failed
-        if: ${{ !inputs.skip_build && failure() }}
-        continue-on-error: true
-        shell: bash
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          PLATFORM: ${{ matrix.platform }}
-          URL: ${{ steps.select_build.outputs.url }}
-        run: |
-          set -euo pipefail
-          SLACK_TEXT=$(EVENT=build STATUS=failed node .tools/scripts/payload-cli.mjs slack-update)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
-      - name: Post Slack build-skipped notice
+        run: node .tools/scripts/release-notifier.mjs reply
+      - name: Post build skipped
         if: ${{ inputs.skip_build && steps.select_build.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: build
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          SLACK_TEXT=$(EVENT=build STATUS=skipped node .tools/scripts/payload-cli.mjs slack-update)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
-      - name: Post Slack build selection failed
-        if: ${{ failure() && inputs.skip_build && steps.select_build.outcome == 'failure' }}
+          STATUS: skipped
+        run: node .tools/scripts/release-notifier.mjs reply
+      - name: Post build selection failed
+        if: ${{ failure() && steps.select_build.outcome == 'failure' }}
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: selection
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          PLATFORM: ${{ matrix.platform }}
+          STATUS: failed
+        run: node .tools/scripts/release-notifier.mjs reply
+      - name: Materialize Android service account
+        if: ${{ matrix.platform == 'android' && steps.select_build.outcome == 'success' }}
+        shell: bash
+        env:
+          ANDROID_SERVICE_ACCOUNT_JSON: ${{ secrets.ANDROID_SERVICE_ACCOUNT_JSON }}
+          ANDROID_SERVICE_ACCOUNT_KEY_PATH: ${{ runner.temp }}/android-service-account.json
         run: |
           set -euo pipefail
-          SLACK_TEXT=$(EVENT=selection STATUS=failed node .tools/scripts/payload-cli.mjs slack-update)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
-      - name: Post Slack submit triggered
+          test -n "$ANDROID_SERVICE_ACCOUNT_JSON"
+          umask 077
+          printf '%s' "$ANDROID_SERVICE_ACCOUNT_JSON" > "$ANDROID_SERVICE_ACCOUNT_KEY_PATH"
+          jq -e 'type == "object" and .type == "service_account"' "$ANDROID_SERVICE_ACCOUNT_KEY_PATH" >/dev/null
+          echo "ANDROID_SERVICE_ACCOUNT_KEY_PATH=$ANDROID_SERVICE_ACCOUNT_KEY_PATH" >> "$GITHUB_ENV"
+      - name: Post submit triggered
+        if: ${{ steps.select_build.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: submit
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          SLACK_TEXT=$(EVENT=submit STATUS=triggered node .tools/scripts/payload-cli.mjs slack-update)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
+          STATUS: triggered
+        run: node .tools/scripts/release-notifier.mjs reply
       - name: EAS submit
         id: submit
+        if: ${{ steps.select_build.outcome == 'success' }}
         shell: bash
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           PLATFORM: ${{ matrix.platform }}
           SUBMIT_PROFILE: ${{ inputs.submit_profile }}
           BUILD_ID: ${{ steps.select_build.outputs.id }}
-        run: |
-          set -euo pipefail
-          node .tools/scripts/exact-eas-release.mjs submit --platform "$PLATFORM" --submit-profile "$SUBMIT_PROFILE" --build-id "$BUILD_ID"
-
-      - name: Post Slack submit completed
+        run: node .tools/scripts/exact-eas-release.mjs submit --platform "$PLATFORM" --submit-profile "$SUBMIT_PROFILE" --build-id "$BUILD_ID"
+      - name: Remove Android service account
+        if: ${{ always() && matrix.platform == 'android' }}
+        shell: bash
+        env:
+          ANDROID_SERVICE_ACCOUNT_KEY_PATH: ${{ runner.temp }}/android-service-account.json
+        run: rm -f "$ANDROID_SERVICE_ACCOUNT_KEY_PATH"
+      - name: Post submit completed
         if: ${{ steps.submit.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: submit
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          set -euo pipefail
-          SLACK_TEXT=$(EVENT=submit STATUS=completed node .tools/scripts/payload-cli.mjs slack-update)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
-      - name: Post Slack submit failed
+          STATUS: completed
+        run: node .tools/scripts/release-notifier.mjs reply
+      - name: Post submit failed
         if: ${{ failure() && steps.submit.outcome == 'failure' }}
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: submit
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          PLATFORM: ${{ matrix.platform }}
+          STATUS: failed
+        run: node .tools/scripts/release-notifier.mjs reply
+
+  site:
+    needs: [prepare, announce]
+    if: ${{ needs.prepare.outputs.should_deploy_site == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
+      - name: Checkout release-actions tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
+        with:
+          repository: ${{ env.ACTIONS_REPO }}
+          ref: ${{ env.ACTIONS_REF }}
+          path: .tools
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
+        with:
+          node-version: "24"
+      - name: Install project dependencies
+        run: .tools/scripts/install-project-deps.sh
+      - name: Post site deployment triggered
+        continue-on-error: true
+        shell: bash
+        env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: deploy
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: site
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          STATUS: triggered
+        run: node .tools/scripts/release-notifier.mjs reply
+      - name: Package static site without provider credentials
+        id: package_site
+        shell: bash
+        env:
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ inputs.site_supabase_publishable_key }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ inputs.site_supabase_url }}
+          SHOTSTEP_ANDROID_RELEASE_SHA256: ${{ inputs.site_android_release_sha256 }}
+          SITE_BUILD_COMMAND: ${{ inputs.site_build_command }}
+          SITE_OUTPUT_DIRECTORY: ${{ inputs.site_output_directory }}
+          SITE_PACKAGE_DIRECTORY: ${{ inputs.site_package_directory }}
         run: |
           set -euo pipefail
-          SLACK_TEXT=$(EVENT=submit STATUS=failed node .tools/scripts/payload-cli.mjs slack-update)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
+          test -n "$SITE_BUILD_COMMAND"
+          test -n "$SITE_OUTPUT_DIRECTORY"
+          test -n "$SITE_PACKAGE_DIRECTORY"
+          SOURCE_REVISION=$(git rev-parse HEAD)
+          node .tools/scripts/static-site-artifact.mjs build \
+            --command "$SITE_BUILD_COMMAND" \
+            --output-directory "$SITE_OUTPUT_DIRECTORY" \
+            --package-directory "$SITE_PACKAGE_DIRECTORY" \
+            --source-revision "$SOURCE_REVISION"
+      - name: Publish static site to Cloudflare Pages
+        id: publish_site
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SITE_DEPLOYMENT_BRANCH: ${{ inputs.site_deployment_branch }}
+          SITE_PACKAGE_DIRECTORY: ${{ inputs.site_package_directory }}
+          SITE_PRODUCTION_BRANCH: ${{ inputs.site_production_branch }}
+          SITE_PROJECT_NAME: ${{ inputs.site_project_name }}
+        run: |
+          set -euo pipefail
+          test -n "$SITE_PROJECT_NAME"
+          test -n "$SITE_DEPLOYMENT_BRANCH"
+          test -n "$SITE_PRODUCTION_BRANCH"
+          DEPLOYMENT=$(node .tools/scripts/cloudflare-pages-publisher.mjs \
+            --package-directory "$SITE_PACKAGE_DIRECTORY" \
+            --project-name "$SITE_PROJECT_NAME" \
+            --deployment-branch "$SITE_DEPLOYMENT_BRANCH" \
+            --production-branch "$SITE_PRODUCTION_BRANCH")
+          echo "url=$(printf '%s' "$DEPLOYMENT" | jq -er '.url')" >> "$GITHUB_OUTPUT"
+      - name: Post site deployment completed
+        if: ${{ steps.publish_site.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: deploy
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: site
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          STATUS: completed
+          URL: ${{ steps.publish_site.outputs.url }}
+        run: node .tools/scripts/release-notifier.mjs reply
+      - name: Post site deployment failed
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: deploy
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          PLATFORM: site
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          STATUS: failed
+        run: node .tools/scripts/release-notifier.mjs reply
 
   finalize:
-    needs: [announce, release]
+    needs: [prepare, announce, release, site]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -296,37 +448,37 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
         with:
           node-version: "24"
-
       - id: state
         name: Resolve final release state
         shell: bash
         env:
-          RELEASE_RESULT: ${{ needs.release.result }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          MOBILE_RESULT: ${{ needs.release.result }}
+          SITE_RESULT: ${{ needs.site.result }}
         run: |
           set -euo pipefail
-          if [ "$RELEASE_RESULT" = "success" ]; then OK=true; STAGE="";
-          else OK=false; STAGE="release"; fi
+          if [ "$PREPARE_RESULT" != "success" ]; then OK=false; STAGE="release preparation";
+          elif [ "$MOBILE_RESULT" = "failure" ] || [ "$MOBILE_RESULT" = "cancelled" ]; then OK=false; STAGE="mobile release";
+          elif [ "$SITE_RESULT" = "failure" ] || [ "$SITE_RESULT" = "cancelled" ]; then OK=false; STAGE="site deployment";
+          else OK=true; STAGE=""; fi
           echo "ok=$OK" >> "$GITHUB_OUTPUT"
           echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
-
-      - name: Post Slack final status
-        if: ${{ always() }}
+      - name: Post final release status
         continue-on-error: true
         shell: bash
         env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          OK: ${{ steps.state.outputs.ok }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
           SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          VERSION: ${{ needs.announce.outputs.version }}
-          OK: ${{ steps.state.outputs.ok }}
           STAGE: ${{ steps.state.outputs.stage }}
-        run: |
-          set -euo pipefail
-          SLACK_TEXT=$(node .tools/scripts/payload-cli.mjs slack-final)
-          SLACK_TEXT="$SLACK_TEXT" node .tools/scripts/slack-cli.mjs reply
-
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: node .tools/scripts/release-notifier.mjs final
       - name: Report failed release
-        if: ${{ always() && steps.state.outputs.ok != 'true' }}
+        if: ${{ steps.state.outputs.ok != 'true' }}
         shell: bash
         env:
           STAGE: ${{ steps.state.outputs.stage }}

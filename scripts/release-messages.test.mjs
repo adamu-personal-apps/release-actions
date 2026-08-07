@@ -57,6 +57,11 @@ describe('release message content', () => {
       event: 'build',
       status: 'skipped',
     })).toBe('⏭️ [Android] build skipped — submitting selected build ID');
+    expect(createUpdateMessage({
+      platform: 'site',
+      event: 'proof',
+      status: 'completed',
+    })).toBe('✅ [Website] hosted routing proof completed; no release artifact was delivered');
     expect(createFinalMessage({ version: '0.1.8', ok: true }))
       .toBe('🎉 Release v0.1.8 complete');
     expect(createFinalMessage({ version: '0.1.8', ok: false, stage: 'submit' }))

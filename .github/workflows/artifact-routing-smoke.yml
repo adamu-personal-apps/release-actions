@@ -1,0 +1,126 @@
+name: Artifact routing smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      summary:
+        description: Reviewed pickleball release-summary bullets for the notification root
+        required: true
+        type: string
+      manifest_owner:
+        description: Expo manifest owner to prove
+        required: true
+        type: string
+      business_owner:
+        description: Manifest owner that routes to Slack
+        required: true
+        default: progress-companion-app
+        type: string
+      profile:
+        description: Display-only profile label
+        required: true
+        default: personal
+        type: choice
+        options: [personal, business]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifact-routing-smoke
+  cancel-in-progress: false
+
+jobs:
+  artifact-routing-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
+        with:
+          node-version: "24"
+      - id: plan
+        name: Resolve manifest-owner notification route
+        shell: bash
+        env:
+          EXPO_OWNER: ${{ inputs.manifest_owner }}
+          INPUT_ARTIFACTS: site
+          INPUT_BUSINESS_OWNER: ${{ inputs.business_owner }}
+          INPUT_PLATFORM: ios
+        run: |
+          set -euo pipefail
+          PLAN=$(node scripts/release-artifact-routing.mjs)
+          notification_publisher=$(printf '%s' "$PLAN" | jq -r '.notificationPublisher')
+          echo "notification_publisher=$notification_publisher" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Hosted artifact-routing proof"
+            echo
+            echo "- Candidate commit: \`${{ github.sha }}\`"
+            echo "- Manifest owner: \`${EXPO_OWNER}\`"
+            echo "- Selected publisher: \`${notification_publisher}\`"
+            echo "- No release artifact will be built or delivered."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "candidate_commit=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      - name: Require the selected publisher configuration
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFICATION_PUBLISHER: ${{ steps.plan.outputs.notification_publisher }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.RELEASE_SLACK_CHANNEL_ID }}
+        run: |
+          set -euo pipefail
+          if [ "$NOTIFICATION_PUBLISHER" = "slack" ]; then
+            test -n "$SLACK_BOT_TOKEN"
+            test -n "$SLACK_CHANNEL_ID"
+          else
+            test -n "$DISCORD_WEBHOOK_URL"
+          fi
+      - id: open_notification
+        name: Open the selected proof thread
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFICATION_PUBLISHER: ${{ steps.plan.outputs.notification_publisher }}
+          PROFILE: ${{ inputs.profile }}
+          PROJECT_NAME: Artifact routing proof
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.RELEASE_SLACK_CHANNEL_ID }}
+          SUMMARY: ${{ inputs.summary }}
+          TRIGGER: hosted artifact-routing smoke
+          VERSION: routing-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: node scripts/release-notifier.mjs open
+      - name: Require selected proof thread
+        shell: bash
+        env:
+          DISCORD_THREAD_ID: ${{ steps.open_notification.outputs.thread_id }}
+          NOTIFICATION_PUBLISHER: ${{ steps.plan.outputs.notification_publisher }}
+          SLACK_THREAD_TS: ${{ steps.open_notification.outputs.thread_ts }}
+        run: |
+          set -euo pipefail
+          if [ "$NOTIFICATION_PUBLISHER" = "slack" ]; then test -n "$SLACK_THREAD_TS"; else test -n "$DISCORD_THREAD_ID"; fi
+      - name: Publish truthful routing-proof lifecycle update
+        shell: bash
+        env:
+          DISCORD_THREAD_ID: ${{ steps.open_notification.outputs.thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: proof
+          NOTIFICATION_PUBLISHER: ${{ steps.plan.outputs.notification_publisher }}
+          PLATFORM: site
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.RELEASE_SLACK_CHANNEL_ID }}
+          SLACK_THREAD_TS: ${{ steps.open_notification.outputs.thread_ts }}
+          STATUS: completed
+        run: node scripts/release-notifier.mjs reply
+      - name: Publish proof final status
+        shell: bash
+        env:
+          DISCORD_THREAD_ID: ${{ steps.open_notification.outputs.thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFICATION_PUBLISHER: ${{ steps.plan.outputs.notification_publisher }}
+          OK: true
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.RELEASE_SLACK_CHANNEL_ID }}
+          SLACK_THREAD_TS: ${{ steps.open_notification.outputs.thread_ts }}
+          STAGE: ""
+          VERSION: routing-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: node scripts/release-notifier.mjs final
