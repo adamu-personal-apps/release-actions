@@ -3,6 +3,8 @@ import {
   createFinalMessage,
   createOpenMessage,
   createUpdateMessage,
+  renderDiscordOpen,
+  renderDiscordReply,
   renderSlackOpen,
   renderSlackReply,
 } from './release-messages.mjs';
@@ -116,5 +118,36 @@ describe('Slack rendering', () => {
     expect(rendered.endsWith('…')).toBe(true);
     expect(reply.length).toBeLessThanOrEqual(4000);
     expect(reply.endsWith('…')).toBe(true);
+  });
+});
+
+describe('Discord rendering', () => {
+  it('keeps the shared release content inside Discord message limits', () => {
+    const rendered = renderDiscordOpen(createOpenMessage({
+      projectName: 'ShotStep',
+      version: '0.1.8',
+      profile: 'personal',
+      trigger: 'manual',
+      summary: `- ${'third-shot drop '.repeat(300)}`,
+    }));
+    const reply = renderDiscordReply(`✅ ${'cross-court dink '.repeat(300)}`);
+
+    expect(rendered.length).toBeLessThanOrEqual(2000);
+    expect(rendered.endsWith('…')).toBe(true);
+    expect(reply.length).toBeLessThanOrEqual(2000);
+    expect(reply.endsWith('…')).toBe(true);
+  });
+
+  it('makes @everyone and @here visibly inert before the webhook blocks mentions', () => {
+    const rendered = renderDiscordOpen(createOpenMessage({
+      projectName: 'ShotStep',
+      version: '0.1.8',
+      profile: 'personal',
+      trigger: 'manual',
+      summary: '- chore: tell @everyone and @here about serve targets',
+    }));
+
+    expect(rendered).not.toContain('@everyone');
+    expect(rendered).not.toContain('@here');
   });
 });

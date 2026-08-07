@@ -33,6 +33,21 @@ describe("payloadFor", () => {
     );
   });
 
+  it("builds Discord roots, replies, and a bounded thread name from the same facts", () => {
+    expect(payloadFor("discord-open", baseEnv)).toContain(
+      "ShotStep — v0.1.8 👤 personal",
+    );
+    expect(payloadFor("discord-update", baseEnv)).toBe(
+      "✅ [iOS] EAS build completed → https://expo.dev/builds/shotstep",
+    );
+    expect(payloadFor("discord-final", baseEnv)).toBe(
+      "🎉 Release v0.1.8 complete",
+    );
+    expect(payloadFor("discord-thread-name", baseEnv)).toBe(
+      "ShotStep — v0.1.8 👤 personal",
+    );
+  });
+
   it("neutralizes Slack mention syntax from manual summaries", () => {
     const result = payloadFor("slack-open", {
       ...baseEnv,

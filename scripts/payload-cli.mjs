@@ -7,6 +7,8 @@ import {
   createFinalMessage,
   createOpenMessage,
   createUpdateMessage,
+  renderDiscordOpen,
+  renderDiscordReply,
   renderSlackOpen,
   renderSlackReply,
 } from "./release-messages.mjs";
@@ -46,6 +48,14 @@ export function payloadFor(kind, env) {
       return renderSlackReply(createUpdateMessage(updateInput(env)));
     case "slack-final":
       return renderSlackReply(createFinalMessage(finalInput(env)));
+    case "discord-open":
+      return renderDiscordOpen(createOpenMessage(openInput(env)));
+    case "discord-thread-name":
+      return createOpenMessage(openInput(env)).title.slice(0, 100);
+    case "discord-update":
+      return renderDiscordReply(createUpdateMessage(updateInput(env)));
+    case "discord-final":
+      return renderDiscordReply(createFinalMessage(finalInput(env)));
     default:
       throw new Error(`Unknown kind: ${kind}`);
   }

@@ -4,6 +4,7 @@
 const PROFILE_TAG = { business: '🏢', personal: '👤' };
 
 const SLACK_TEXT_LIMIT = 4000;
+const DISCORD_TEXT_LIMIT = 2000;
 
 const EVENT_EMOJI = {
   'build:triggered': '🔨',
@@ -14,6 +15,9 @@ const EVENT_EMOJI = {
   'submit:triggered': '📤',
   'submit:completed': '✅',
   'submit:failed': '❌',
+  'deploy:triggered': '🚀',
+  'deploy:completed': '✅',
+  'deploy:failed': '❌',
 };
 
 const EVENT_TEXT = {
@@ -25,6 +29,9 @@ const EVENT_TEXT = {
   'submit:triggered': 'EAS submit triggered',
   'submit:completed': 'EAS submit completed',
   'submit:failed': 'EAS submit failed',
+  'deploy:triggered': 'Cloudflare Pages deployment triggered',
+  'deploy:completed': 'Cloudflare Pages deployment completed',
+  'deploy:failed': 'Cloudflare Pages deployment failed',
 };
 
 function truncate(text, limit) {
@@ -38,6 +45,10 @@ function slackSafeText(text) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replace(/@(channel|here|everyone)\b/giu, '@\u200b$1');
+}
+
+function discordSafeText(text) {
+  return text.replace(/@(channel|here|everyone)\b/giu, '@\u200b$1');
 }
 
 export function createOpenMessage({ projectName, version, profile, trigger, summary }) {
@@ -57,7 +68,7 @@ export function createUpdateMessage({ platform, event, status, url }) {
   const emoji = EVENT_EMOJI[key];
   const text = EVENT_TEXT[key];
   if (!emoji || !text) throw new Error(`Unknown event/status: ${key}`);
-  const label = `[${platform === 'ios' ? 'iOS' : 'Android'}]`;
+  const label = `[${platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : 'Website'}]`;
   const base = `${emoji} ${label} ${text}`;
   return url ? `${base} → ${url}` : base;
 }
@@ -77,4 +88,15 @@ export function renderSlackOpen(message) {
 
 export function renderSlackReply(message) {
   return truncate(slackSafeText(message), SLACK_TEXT_LIMIT);
+}
+
+export function renderDiscordOpen(message) {
+  return truncate(
+    discordSafeText(`${message.title}\n${message.body}`),
+    DISCORD_TEXT_LIMIT,
+  );
+}
+
+export function renderDiscordReply(message) {
+  return truncate(discordSafeText(message), DISCORD_TEXT_LIMIT);
 }
