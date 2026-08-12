@@ -9,7 +9,7 @@ const workflow = await readFile(workflowUrl, "utf8");
 
 const CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_SHA = "820762786026740c76f36085b0efc47a31fe5020";
-const ROUTING_TOOLS_SHA = "ae1f0e09dc323e528503074c32b107e6c06cedc7";
+const ROUTING_TOOLS_SHA = "815bdc1c3c7ff63f3e982df14a06cdd16b183bec";
 
 function actionRefs(action) {
   return [
