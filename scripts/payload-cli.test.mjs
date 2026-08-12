@@ -3,6 +3,8 @@ import { payloadFor } from "./payload-cli.mjs";
 
 const baseEnv = {
   PROJECT_NAME: "ShotStep",
+  ARTIFACT: "ios",
+  ARTIFACT_NAME: "ShotStep iOS",
   VERSION: "0.1.8",
   PROFILE: "personal",
   TRIGGER: "manual",
@@ -19,9 +21,8 @@ describe("payloadFor", () => {
   it("builds Slack roots and replies from release lifecycle facts", () => {
     expect(payloadFor("slack-open", baseEnv)).toBe(
       [
-        "ShotStep — v0.1.8 👤 personal",
-        "🚀 Release triggered (manual) · personal",
-        "Changes:",
+        "ShotStep iOS 0.1.8",
+        "🚀 Candidate build started",
         "- feat: add cross-court dink homework",
       ].join("\n"),
     );
@@ -29,22 +30,22 @@ describe("payloadFor", () => {
       "✅ [iOS] EAS build completed → https://expo.dev/builds/shotstep",
     );
     expect(payloadFor("slack-final", baseEnv)).toBe(
-      "🎉 Release v0.1.8 complete",
+      "🎉 ShotStep iOS 0.1.8 complete",
     );
   });
 
   it("builds Discord roots, replies, and a bounded thread name from the same facts", () => {
     expect(payloadFor("discord-open", baseEnv)).toContain(
-      "ShotStep — v0.1.8 👤 personal",
+      "ShotStep iOS 0.1.8",
     );
     expect(payloadFor("discord-update", baseEnv)).toBe(
       "✅ [iOS] EAS build completed → https://expo.dev/builds/shotstep",
     );
     expect(payloadFor("discord-final", baseEnv)).toBe(
-      "🎉 Release v0.1.8 complete",
+      "🎉 ShotStep iOS 0.1.8 complete",
     );
     expect(payloadFor("discord-thread-name", baseEnv)).toBe(
-      "ShotStep — v0.1.8 👤 personal",
+      "ShotStep iOS 0.1.8",
     );
   });
 

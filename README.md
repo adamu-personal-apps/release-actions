@@ -2,7 +2,8 @@
 
 Reusable GitHub Actions workflow for artifact-aware Expo releases. It runs
 caller project commands on Node 24, selects an explicit canonical subset of
-iOS, Android, and static-site artifacts, and publishes one lifecycle thread.
+iOS, Android, and static-site artifacts, and publishes one lifecycle thread per
+selected artifact.
 The Expo manifest owner chooses the publisher: the configured business owner
 uses Slack; every other owner uses Discord.
 
@@ -42,8 +43,10 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      version: { type: string }
-      summary: { type: string }
+      mobile_version: { type: string }
+      site_version: { type: string }
+      mobile_summary: { type: string }
+      site_summary: { type: string }
       artifacts: { type: choice, options: [ios, android, site, "ios,android", "ios,site", "android,site", "ios,android,site"], default: ios }
       skip_build: { type: boolean, default: false }
 
@@ -56,8 +59,13 @@ jobs:
       profile: business # display label only
       artifacts: ${{ inputs.artifacts || 'ios' }}
       business_owner: progress-companion-app
-      version: ${{ inputs.version }}
-      summary: ${{ inputs.summary }}
+      mobile_version: ${{ inputs.mobile_version }}
+      site_version: ${{ inputs.site_version }}
+      mobile_summary: ${{ inputs.mobile_summary }}
+      site_summary: ${{ inputs.site_summary }}
+      ios_artifact_name: My App iOS
+      android_artifact_name: My App Android
+      site_artifact_name: example.com
       skip_build: ${{ inputs.skip_build || false }}
       slack_channel_id: C0123456789
       site_build_command: pnpm site:prepare --release
@@ -91,6 +99,13 @@ jobs:
 | `submit_profile`   | `production` | EAS submit profile                              |
 | `version`          | derived      | override; otherwise the tag or package version  |
 | `summary`          | git log      | optional manual release summary                 |
+| `mobile_version`   | `version`    | independent iOS and Android release version     |
+| `site_version`     | `version`    | independent website release version             |
+| `mobile_summary`   | `summary`    | human-friendly iOS and Android changes           |
+| `site_summary`     | `summary`    | human-friendly website changes                   |
+| `ios_artifact_name` | project name + iOS | first-line iOS artifact label            |
+| `android_artifact_name` | project name + Android | first-line Android artifact label  |
+| `site_artifact_name` | project name + website | first-line website artifact label      |
 | `skip_build`       | `false`      | resolve one finished build for the requested profile and submit its exact ID without creating a new build |
 | `slack_channel_id` | empty        | non-secret Slack destination                    |
 | `site_build_command` | —          | caller static build command, required for `site` |
@@ -123,7 +138,9 @@ cannot start a build, submission, or site deployment.
 
 The reusable workflow runs `prepare` → `announce` → parallel `release` and
 `site` → `finalize`. `prepare` reads the caller Expo manifest, resolves the
-canonical artifact set, and selects exactly one publisher. Each mobile platform
+canonical artifact set, pairs every artifact with its own name, version, and
+summary, and selects exactly one publisher. Each selected artifact opens its
+own root thread. Each mobile platform
 gets one release leg that selects or creates one build, records its exact EAS
 ID, and submits that same ID. A selected site is first packaged by the
 provider-free artifact helper, then published by the separate Pages helper.
@@ -134,6 +151,10 @@ workflow also checks out its helper scripts from the reviewed commit named by
 implementations.
 
 ## Delivery behavior
+
+Each root announcement starts with `<artifact> <version>`. Mobile roots then
+say `🚀 Candidate build started`; website roots say `🚀 Release triggered`.
+The next lines are only that artifact's supplied human-friendly changes.
 
 With multiple selected artifacts, delivery is independent: one platform or the
 site can complete while another fails. The final status names `mobile release`

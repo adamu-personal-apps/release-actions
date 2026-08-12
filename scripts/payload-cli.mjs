@@ -15,10 +15,9 @@ import {
 
 function openInput(env) {
   return {
-    projectName: env.PROJECT_NAME,
+    artifact: env.ARTIFACT,
+    artifactName: env.ARTIFACT_NAME || env.PROJECT_NAME,
     version: env.VERSION,
-    profile: env.PROFILE,
-    trigger: env.TRIGGER,
     summary: env.SUMMARY,
   };
 }
@@ -34,6 +33,7 @@ function updateInput(env) {
 
 function finalInput(env) {
   return {
+    artifactName: env.ARTIFACT_NAME,
     version: env.VERSION,
     ok: env.OK === "true",
     stage: env.STAGE,

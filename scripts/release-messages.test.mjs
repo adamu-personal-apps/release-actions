@@ -12,27 +12,37 @@ import {
 describe('release message content', () => {
   it('builds one recognizable release announcement for every destination', () => {
     expect(createOpenMessage({
-      projectName: 'ShotStep',
+      artifact: 'ios',
+      artifactName: 'ShotStep iOS',
       version: '0.1.8',
-      profile: 'personal',
-      trigger: 'auto: tag v0.1.8',
       summary: '- feat: add a third-shot drop practice',
     })).toEqual({
-      title: 'ShotStep — v0.1.8 👤 personal',
+      title: 'ShotStep iOS 0.1.8',
       body: [
-        '🚀 Release triggered (auto: tag v0.1.8) · personal',
-        'Changes:',
+        '🚀 Candidate build started',
         '- feat: add a third-shot drop practice',
+      ].join('\n'),
+    });
+
+    expect(createOpenMessage({
+      artifact: 'site',
+      artifactName: 'shotstep.com',
+      version: '0.1.7',
+      summary: '- Make account-deletion help easier to find.',
+    })).toEqual({
+      title: 'shotstep.com 0.1.7',
+      body: [
+        '🚀 Release triggered',
+        '- Make account-deletion help easier to find.',
       ].join('\n'),
     });
   });
 
   it('preserves quotes and newlines in outside text before transport encoding', () => {
     const message = createOpenMessage({
-      projectName: 'ShotStep "Coach"',
+      artifact: 'ios',
+      artifactName: 'ShotStep "Coach" iOS',
       version: '0.1.8',
-      profile: 'personal',
-      trigger: 'manual',
       summary: '- fix: keep "kitchen" notes\n- feat: add serve targets',
     });
 
@@ -72,27 +82,24 @@ describe('release message content', () => {
 describe('Slack rendering', () => {
   it('uses one root message with the shared title and body', () => {
     const rendered = renderSlackOpen(createOpenMessage({
-      projectName: 'ShotStep',
+      artifact: 'android',
+      artifactName: 'ShotStep Android',
       version: '0.1.8',
-      profile: 'business',
-      trigger: 'manual',
       summary: '- feat: add dink reset homework',
     }));
 
     expect(rendered).toBe([
-      'ShotStep — v0.1.8 🏢 business',
-      '🚀 Release triggered (manual) · business',
-      'Changes:',
+      'ShotStep Android 0.1.8',
+      '🚀 Candidate build started',
       '- feat: add dink reset homework',
     ].join('\n'));
   });
 
   it('neutralizes mention-like outside text without flattening quotes or newlines', () => {
     const rendered = renderSlackOpen(createOpenMessage({
-      projectName: 'ShotStep <!channel>',
+      artifact: 'site',
+      artifactName: 'shotstep.com <!channel>',
       version: '0.1.8',
-      profile: 'personal',
-      trigger: 'manual',
       summary: [
         '- fix: keep "kitchen" notes for @channel',
         '- feat: coach <@U12345> on resets',
@@ -111,10 +118,9 @@ describe('Slack rendering', () => {
 
   it('keeps roots and replies inside Slack recommended text limits', () => {
     const rendered = renderSlackOpen(createOpenMessage({
-      projectName: 'ShotStep',
+      artifact: 'ios',
+      artifactName: 'ShotStep iOS',
       version: '0.1.8',
-      profile: 'personal',
-      trigger: 'manual',
       summary: `- ${'serve return '.repeat(500)}`,
     }));
     const reply = renderSlackReply(`✅ ${'cross-court dink '.repeat(500)}`);
@@ -129,10 +135,9 @@ describe('Slack rendering', () => {
 describe('Discord rendering', () => {
   it('keeps the shared release content inside Discord message limits', () => {
     const rendered = renderDiscordOpen(createOpenMessage({
-      projectName: 'ShotStep',
+      artifact: 'android',
+      artifactName: 'ShotStep Android',
       version: '0.1.8',
-      profile: 'personal',
-      trigger: 'manual',
       summary: `- ${'third-shot drop '.repeat(300)}`,
     }));
     const reply = renderDiscordReply(`✅ ${'cross-court dink '.repeat(300)}`);
@@ -145,10 +150,9 @@ describe('Discord rendering', () => {
 
   it('makes @everyone and @here visibly inert before the webhook blocks mentions', () => {
     const rendered = renderDiscordOpen(createOpenMessage({
-      projectName: 'ShotStep',
+      artifact: 'site',
+      artifactName: 'shotstep.com',
       version: '0.1.8',
-      profile: 'personal',
-      trigger: 'manual',
       summary: '- chore: tell @everyone and @here about serve targets',
     }));
 

@@ -12,6 +12,13 @@ on:
       submit_profile: { type: string, default: production }
       version: { type: string, required: false }
       summary: { type: string, required: false }
+      mobile_version: { type: string, required: false }
+      site_version: { type: string, required: false }
+      mobile_summary: { type: string, required: false }
+      site_summary: { type: string, required: false }
+      ios_artifact_name: { type: string, required: false }
+      android_artifact_name: { type: string, required: false }
+      site_artifact_name: { type: string, required: false }
       skip_build: { type: boolean, default: false }
       slack_channel_id: { type: string, required: false }
       site_build_command: { type: string, required: false }
@@ -39,8 +46,10 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
+      artifacts: ${{ steps.plan.outputs.artifacts }}
       mobile_platforms: ${{ steps.plan.outputs.mobile_platforms }}
       notification_publisher: ${{ steps.plan.outputs.notification_publisher }}
+      release_plan: ${{ steps.artifact_releases.outputs.release_plan }}
       should_deploy_site: ${{ steps.plan.outputs.should_deploy_site }}
       summary: ${{ steps.sum.outputs.summary }}
       version: ${{ steps.ver.outputs.version }}
@@ -93,19 +102,44 @@ jobs:
           APP_CONFIG=$(npx --no-install expo config --type public --json)
           EXPO_OWNER=$(printf '%s' "$APP_CONFIG" | jq -er '.owner | select(type == "string" and length > 0)')
           PLAN=$(EXPO_OWNER="$EXPO_OWNER" node .tools/scripts/release-artifact-routing.mjs)
+          artifacts=$(printf '%s' "$PLAN" | jq -c '.artifacts')
           mobile_platforms=$(printf '%s' "$PLAN" | jq -c '.mobilePlatforms')
           should_deploy_site=$(printf '%s' "$PLAN" | jq -r '.shouldDeploySite')
           notification_publisher=$(printf '%s' "$PLAN" | jq -r '.notificationPublisher')
+          echo "artifacts=$artifacts" >> "$GITHUB_OUTPUT"
           echo "mobile_platforms=$mobile_platforms" >> "$GITHUB_OUTPUT"
           echo "should_deploy_site=$should_deploy_site" >> "$GITHUB_OUTPUT"
           echo "notification_publisher=$notification_publisher" >> "$GITHUB_OUTPUT"
+      - id: artifact_releases
+        name: Pair each artifact with its release identity and changes
+        shell: bash
+        env:
+          ANDROID_ARTIFACT_NAME: ${{ inputs.android_artifact_name }}
+          ARTIFACTS_JSON: ${{ steps.plan.outputs.artifacts }}
+          IOS_ARTIFACT_NAME: ${{ inputs.ios_artifact_name }}
+          LEGACY_SUMMARY: ${{ steps.sum.outputs.summary }}
+          LEGACY_VERSION: ${{ steps.ver.outputs.version }}
+          MOBILE_SUMMARY: ${{ inputs.mobile_summary }}
+          MOBILE_VERSION: ${{ inputs.mobile_version }}
+          PROJECT_NAME: ${{ inputs.project_name }}
+          SITE_ARTIFACT_NAME: ${{ inputs.site_artifact_name }}
+          SITE_SUMMARY: ${{ inputs.site_summary }}
+          SITE_VERSION: ${{ inputs.site_version }}
+        run: |
+          set -euo pipefail
+          RELEASE_PLAN=$(node .tools/scripts/artifact-release-plan.mjs)
+          echo "release_plan=$RELEASE_PLAN" >> "$GITHUB_OUTPUT"
 
   announce:
     needs: prepare
     runs-on: ubuntu-latest
     outputs:
-      discord_thread_id: ${{ steps.open_notification.outputs.thread_id }}
-      slack_thread_ts: ${{ steps.open_notification.outputs.thread_ts }}
+      android_discord_thread_id: ${{ steps.open_android.outputs.thread_id }}
+      android_slack_thread_ts: ${{ steps.open_android.outputs.thread_ts }}
+      ios_discord_thread_id: ${{ steps.open_ios.outputs.thread_id }}
+      ios_slack_thread_ts: ${{ steps.open_ios.outputs.thread_ts }}
+      site_discord_thread_id: ${{ steps.open_site.outputs.thread_id }}
+      site_slack_thread_ts: ${{ steps.open_site.outputs.thread_ts }}
     steps:
       - name: Checkout release-actions tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # checkout v7
@@ -116,24 +150,60 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # setup-node v7
         with:
           node-version: "24"
-      - id: open_notification
-        name: Open selected release notification thread
+      - id: open_ios
+        name: Open iOS release notification thread
+        if: ${{ contains(fromJSON(needs.prepare.outputs.mobile_platforms), 'ios') }}
         continue-on-error: true
         shell: bash
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
-          PROJECT_NAME: ${{ inputs.project_name }}
-          PROFILE: ${{ inputs.profile }}
+          RELEASE_PLAN: ${{ needs.prepare.outputs.release_plan }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SUMMARY: ${{ needs.prepare.outputs.summary }}
-          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          if [ "$IS_MANUAL" = "true" ]; then TRIGGER="manual"; else TRIGGER="auto: tag v${VERSION}"; fi
-          TRIGGER="$TRIGGER" node .tools/scripts/release-notifier.mjs open
+          ARTIFACT_NAME=$(printf '%s' "$RELEASE_PLAN" | jq -er '.ios.name')
+          VERSION=$(printf '%s' "$RELEASE_PLAN" | jq -er '.ios.version')
+          SUMMARY=$(printf '%s' "$RELEASE_PLAN" | jq -er '.ios.summary')
+          ARTIFACT=ios ARTIFACT_NAME="$ARTIFACT_NAME" VERSION="$VERSION" SUMMARY="$SUMMARY" \
+            node .tools/scripts/release-notifier.mjs open
+      - id: open_android
+        name: Open Android release notification thread
+        if: ${{ contains(fromJSON(needs.prepare.outputs.mobile_platforms), 'android') }}
+        continue-on-error: true
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          RELEASE_PLAN: ${{ needs.prepare.outputs.release_plan }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_NAME=$(printf '%s' "$RELEASE_PLAN" | jq -er '.android.name')
+          VERSION=$(printf '%s' "$RELEASE_PLAN" | jq -er '.android.version')
+          SUMMARY=$(printf '%s' "$RELEASE_PLAN" | jq -er '.android.summary')
+          ARTIFACT=android ARTIFACT_NAME="$ARTIFACT_NAME" VERSION="$VERSION" SUMMARY="$SUMMARY" \
+            node .tools/scripts/release-notifier.mjs open
+      - id: open_site
+        name: Open website release notification thread
+        if: ${{ needs.prepare.outputs.should_deploy_site == 'true' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          RELEASE_PLAN: ${{ needs.prepare.outputs.release_plan }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_NAME=$(printf '%s' "$RELEASE_PLAN" | jq -er '.site.name')
+          VERSION=$(printf '%s' "$RELEASE_PLAN" | jq -er '.site.version')
+          SUMMARY=$(printf '%s' "$RELEASE_PLAN" | jq -er '.site.summary')
+          ARTIFACT=site ARTIFACT_NAME="$ARTIFACT_NAME" VERSION="$VERSION" SUMMARY="$SUMMARY" \
+            node .tools/scripts/release-notifier.mjs open
 
   release:
     needs: [prepare, announce]
@@ -162,14 +232,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_discord_thread_id || needs.announce.outputs.android_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: build
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_slack_thread_ts || needs.announce.outputs.android_slack_thread_ts }}
           STATUS: triggered
         run: node .tools/scripts/release-notifier.mjs reply
       - name: Resolve the exact EAS build
@@ -213,14 +283,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_discord_thread_id || needs.announce.outputs.android_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: build
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_slack_thread_ts || needs.announce.outputs.android_slack_thread_ts }}
           STATUS: completed
           URL: ${{ steps.select_build.outputs.url }}
         run: node .tools/scripts/release-notifier.mjs reply
@@ -229,14 +299,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_discord_thread_id || needs.announce.outputs.android_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: build
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_slack_thread_ts || needs.announce.outputs.android_slack_thread_ts }}
           STATUS: skipped
         run: node .tools/scripts/release-notifier.mjs reply
       - name: Post build selection failed
@@ -244,14 +314,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_discord_thread_id || needs.announce.outputs.android_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: selection
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_slack_thread_ts || needs.announce.outputs.android_slack_thread_ts }}
           STATUS: failed
         run: node .tools/scripts/release-notifier.mjs reply
       - name: Materialize Android service account
@@ -272,14 +342,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_discord_thread_id || needs.announce.outputs.android_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: submit
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_slack_thread_ts || needs.announce.outputs.android_slack_thread_ts }}
           STATUS: triggered
         run: node .tools/scripts/release-notifier.mjs reply
       - name: EAS submit
@@ -303,14 +373,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_discord_thread_id || needs.announce.outputs.android_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: submit
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_slack_thread_ts || needs.announce.outputs.android_slack_thread_ts }}
           STATUS: completed
         run: node .tools/scripts/release-notifier.mjs reply
       - name: Post submit failed
@@ -318,14 +388,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_discord_thread_id || needs.announce.outputs.android_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: submit
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: ${{ matrix.platform }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ matrix.platform == 'ios' && needs.announce.outputs.ios_slack_thread_ts || needs.announce.outputs.android_slack_thread_ts }}
           STATUS: failed
         run: node .tools/scripts/release-notifier.mjs reply
 
@@ -350,14 +420,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.site_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: deploy
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: site
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.site_slack_thread_ts }}
           STATUS: triggered
         run: node .tools/scripts/release-notifier.mjs reply
       - name: Package static site without provider credentials
@@ -407,14 +477,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.site_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: deploy
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: site
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.site_slack_thread_ts }}
           STATUS: completed
           URL: ${{ steps.publish_site.outputs.url }}
         run: node .tools/scripts/release-notifier.mjs reply
@@ -423,14 +493,14 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.site_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           EVENT: deploy
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
           PLATFORM: site
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.site_slack_thread_ts }}
           STATUS: failed
         run: node .tools/scripts/release-notifier.mjs reply
 
@@ -457,26 +527,84 @@ jobs:
           SITE_RESULT: ${{ needs.site.result }}
         run: |
           set -euo pipefail
-          if [ "$PREPARE_RESULT" != "success" ]; then OK=false; STAGE="release preparation";
-          elif [ "$MOBILE_RESULT" = "failure" ] || [ "$MOBILE_RESULT" = "cancelled" ]; then OK=false; STAGE="mobile release";
-          elif [ "$SITE_RESULT" = "failure" ] || [ "$SITE_RESULT" = "cancelled" ]; then OK=false; STAGE="site deployment";
-          else OK=true; STAGE=""; fi
+          if [ "$PREPARE_RESULT" != "success" ]; then
+            MOBILE_OK=false; MOBILE_STAGE="release preparation"
+            SITE_OK=false; SITE_STAGE="release preparation"
+          else
+            if [ "$MOBILE_RESULT" = "failure" ] || [ "$MOBILE_RESULT" = "cancelled" ]; then
+              MOBILE_OK=false; MOBILE_STAGE="mobile release"
+            else
+              MOBILE_OK=true; MOBILE_STAGE=""
+            fi
+            if [ "$SITE_RESULT" = "failure" ] || [ "$SITE_RESULT" = "cancelled" ]; then
+              SITE_OK=false; SITE_STAGE="site deployment"
+            else
+              SITE_OK=true; SITE_STAGE=""
+            fi
+          fi
+          if [ "$MOBILE_OK" = "true" ] && [ "$SITE_OK" = "true" ]; then OK=true; STAGE=""
+          elif [ "$MOBILE_OK" != "true" ]; then OK=false; STAGE="$MOBILE_STAGE"
+          else OK=false; STAGE="$SITE_STAGE"; fi
+          echo "mobile_ok=$MOBILE_OK" >> "$GITHUB_OUTPUT"
+          echo "mobile_stage=$MOBILE_STAGE" >> "$GITHUB_OUTPUT"
+          echo "site_ok=$SITE_OK" >> "$GITHUB_OUTPUT"
+          echo "site_stage=$SITE_STAGE" >> "$GITHUB_OUTPUT"
           echo "ok=$OK" >> "$GITHUB_OUTPUT"
           echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
-      - name: Post final release status
+      - name: Post final iOS release status
+        if: ${{ contains(fromJSON(needs.prepare.outputs.mobile_platforms), 'ios') }}
         continue-on-error: true
         shell: bash
         env:
-          DISCORD_THREAD_ID: ${{ needs.announce.outputs.discord_thread_id }}
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.ios_discord_thread_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
-          OK: ${{ steps.state.outputs.ok }}
+          OK: ${{ steps.state.outputs.mobile_ok }}
+          RELEASE_PLAN: ${{ needs.prepare.outputs.release_plan }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
-          SLACK_THREAD_TS: ${{ needs.announce.outputs.slack_thread_ts }}
-          STAGE: ${{ steps.state.outputs.stage }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: node .tools/scripts/release-notifier.mjs final
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.ios_slack_thread_ts }}
+          STAGE: ${{ steps.state.outputs.mobile_stage }}
+        run: |
+          ARTIFACT_NAME=$(printf '%s' "$RELEASE_PLAN" | jq -er '.ios.name')
+          VERSION=$(printf '%s' "$RELEASE_PLAN" | jq -er '.ios.version')
+          ARTIFACT_NAME="$ARTIFACT_NAME" VERSION="$VERSION" node .tools/scripts/release-notifier.mjs final
+      - name: Post final Android release status
+        if: ${{ contains(fromJSON(needs.prepare.outputs.mobile_platforms), 'android') }}
+        continue-on-error: true
+        shell: bash
+        env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.android_discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          OK: ${{ steps.state.outputs.mobile_ok }}
+          RELEASE_PLAN: ${{ needs.prepare.outputs.release_plan }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.android_slack_thread_ts }}
+          STAGE: ${{ steps.state.outputs.mobile_stage }}
+        run: |
+          ARTIFACT_NAME=$(printf '%s' "$RELEASE_PLAN" | jq -er '.android.name')
+          VERSION=$(printf '%s' "$RELEASE_PLAN" | jq -er '.android.version')
+          ARTIFACT_NAME="$ARTIFACT_NAME" VERSION="$VERSION" node .tools/scripts/release-notifier.mjs final
+      - name: Post final website release status
+        if: ${{ needs.prepare.outputs.should_deploy_site == 'true' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          DISCORD_THREAD_ID: ${{ needs.announce.outputs.site_discord_thread_id }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFICATION_PUBLISHER: ${{ needs.prepare.outputs.notification_publisher }}
+          OK: ${{ steps.state.outputs.site_ok }}
+          RELEASE_PLAN: ${{ needs.prepare.outputs.release_plan }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_THREAD_TS: ${{ needs.announce.outputs.site_slack_thread_ts }}
+          STAGE: ${{ steps.state.outputs.site_stage }}
+        run: |
+          ARTIFACT_NAME=$(printf '%s' "$RELEASE_PLAN" | jq -er '.site.name')
+          VERSION=$(printf '%s' "$RELEASE_PLAN" | jq -er '.site.version')
+          ARTIFACT_NAME="$ARTIFACT_NAME" VERSION="$VERSION" node .tools/scripts/release-notifier.mjs final
       - name: Report failed release
         if: ${{ steps.state.outputs.ok != 'true' }}
         shell: bash

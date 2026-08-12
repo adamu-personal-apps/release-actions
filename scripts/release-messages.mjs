@@ -1,8 +1,6 @@
 // Release lifecycle content and destination-safe text rendering.
 // This module is deliberately pure: transports own JSON and network I/O.
 
-const PROFILE_TAG = { business: '🏢', personal: '👤' };
-
 const SLACK_TEXT_LIMIT = 4000;
 const DISCORD_TEXT_LIMIT = 2000;
 
@@ -53,15 +51,15 @@ function discordSafeText(text) {
   return text.replace(/@(channel|here|everyone)\b/giu, '@\u200b$1');
 }
 
-export function createOpenMessage({ projectName, version, profile, trigger, summary }) {
-  const tag = PROFILE_TAG[profile] ?? '';
-  const title = `${projectName} — v${version} ${tag} ${profile}`
-    .replace(/\s+/g, ' ')
-    .trim();
+export function createOpenMessage({ artifact, artifactName, version, summary }) {
+  const title = `${artifactName} ${version}`.replace(/\s+/g, ' ').trim();
+  const lifecycle = artifact === 'ios' || artifact === 'android'
+    ? '🚀 Candidate build started'
+    : '🚀 Release triggered';
 
   return {
     title,
-    body: `🚀 Release triggered (${trigger}) · ${profile}\nChanges:\n${summary}`,
+    body: `${lifecycle}\n${summary}`,
   };
 }
 
@@ -75,10 +73,11 @@ export function createUpdateMessage({ platform, event, status, url }) {
   return url ? `${base} → ${url}` : base;
 }
 
-export function createFinalMessage({ version, ok, stage }) {
+export function createFinalMessage({ artifactName, version, ok, stage }) {
+  const identity = artifactName ? `${artifactName} ${version}` : `Release v${version}`;
   return ok
-    ? `🎉 Release v${version} complete`
-    : `⚠️ Release v${version} failed at ${stage}`;
+    ? `🎉 ${identity} complete`
+    : `⚠️ ${identity} failed at ${stage}`;
 }
 
 export function renderSlackOpen(message) {

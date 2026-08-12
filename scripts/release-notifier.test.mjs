@@ -5,6 +5,8 @@ import { runReleaseNotification } from "./release-notifier.mjs";
 const baseEnv = {
   NOTIFICATION_PUBLISHER: "slack",
   PROJECT_NAME: "ShotStep",
+  ARTIFACT: "ios",
+  ARTIFACT_NAME: "ShotStep iOS",
   VERSION: "0.1.8",
   PROFILE: "business",
   TRIGGER: "manual",
@@ -31,7 +33,7 @@ describe("runReleaseNotification", () => {
     expect(runSlack).toHaveBeenCalledWith(expect.objectContaining({
       command: "open",
       env: expect.objectContaining({
-        SLACK_TEXT: expect.stringContaining("ShotStep — v0.1.8"),
+        SLACK_TEXT: expect.stringContaining("ShotStep iOS 0.1.8"),
       }),
     }));
     expect(runDiscord).not.toHaveBeenCalled();
@@ -51,8 +53,8 @@ describe("runReleaseNotification", () => {
     expect(runDiscord).toHaveBeenCalledWith(expect.objectContaining({
       command: "open",
       env: expect.objectContaining({
-        DISCORD_TEXT: expect.stringContaining("ShotStep — v0.1.8"),
-        DISCORD_THREAD_NAME: "ShotStep — v0.1.8 👤 personal",
+        DISCORD_TEXT: expect.stringContaining("ShotStep iOS 0.1.8"),
+        DISCORD_THREAD_NAME: "ShotStep iOS 0.1.8",
       }),
     }));
     expect(runSlack).not.toHaveBeenCalled();

@@ -41,6 +41,33 @@ describe("shared artifact-aware release workflow contract", () => {
     expect(workflow).toContain("EXPO_OWNER=$(printf '%s' \"$APP_CONFIG\" | jq -er '.owner");
     expect(workflow).toContain("mobile_platforms=$(printf '%s' \"$PLAN\" | jq -c '.mobilePlatforms')");
     expect(workflow).toContain("should_deploy_site=$(printf '%s' \"$PLAN\" | jq -r '.shouldDeploySite')");
+    for (const input of [
+      "mobile_version",
+      "site_version",
+      "mobile_summary",
+      "site_summary",
+      "ios_artifact_name",
+      "android_artifact_name",
+      "site_artifact_name",
+    ]) {
+      expect(workflow).toContain(`${input}: { type: string, required: false }`);
+    }
+    expect(workflow).toContain("artifact-release-plan.mjs");
+    expect(workflow).toContain("release_plan: ${{ steps.artifact_releases.outputs.release_plan }}");
+  });
+
+  it("opens and routes one notification thread per selected artifact", () => {
+    for (const artifact of ["ios", "android", "site"]) {
+      expect(workflow).toContain(`id: open_${artifact}`);
+      expect(workflow).toContain(`${artifact}_slack_thread_ts: \${{ steps.open_${artifact}.outputs.thread_ts }}`);
+      expect(workflow).toContain(`${artifact}_discord_thread_id: \${{ steps.open_${artifact}.outputs.thread_id }}`);
+    }
+    expect(workflow).toContain("ARTIFACT_NAME=$(printf '%s' \"$RELEASE_PLAN\" | jq -er '.ios.name')");
+    expect(workflow).toContain("ARTIFACT_NAME=$(printf '%s' \"$RELEASE_PLAN\" | jq -er '.android.name')");
+    expect(workflow).toContain("ARTIFACT_NAME=$(printf '%s' \"$RELEASE_PLAN\" | jq -er '.site.name')");
+    expect(workflow).toContain("needs.announce.outputs.ios_slack_thread_ts");
+    expect(workflow).toContain("needs.announce.outputs.android_slack_thread_ts");
+    expect(workflow).toContain("needs.announce.outputs.site_slack_thread_ts");
   });
 
   it("routes exclusively by the Expo manifest owner, never the caller profile label", () => {
@@ -85,7 +112,9 @@ describe("shared artifact-aware release workflow contract", () => {
     expect(workflow).toContain("SITE_RESULT: ${{ needs.site.result }}");
     expect(workflow).toContain('STAGE="mobile release"');
     expect(workflow).toContain('STAGE="site deployment"');
-    const finalNotice = workflow.indexOf("name: Post final release status");
+    const finalNotice = workflow.indexOf("name: Post final iOS release status");
+    expect(workflow).toContain("name: Post final Android release status");
+    expect(workflow).toContain("name: Post final website release status");
     const failure = workflow.indexOf("name: Report failed release");
     expect(finalNotice).toBeGreaterThan(0);
     expect(failure).toBeGreaterThan(finalNotice);
