@@ -45,7 +45,14 @@ function resolveLegacyArtifacts(platform) {
   return artifacts;
 }
 
-function resolveNotificationPublisher({ businessOwner, expoOwner }) {
+function resolveNotificationPublisher({ businessOwner, expoOwner, projectOwner }) {
+  // project-manifest.json's `owner` is the source of truth when present:
+  // "personal" projects announce on Discord, business projects on Slack.
+  if (projectOwner) {
+    return projectOwner === "personal" ? "discord" : "slack";
+  }
+  // Legacy fallback for repos without a project manifest: compare the Expo
+  // manifest owner against the caller-declared business owner.
   if (!businessOwner) {
     return "slack";
   }
@@ -61,6 +68,7 @@ export function resolveReleasePlan({
   explicitArtifacts = artifacts !== "",
   expoOwner = "",
   platform = "ios",
+  projectOwner = "",
 }) {
   const resolvedArtifacts = explicitArtifacts
     ? resolveExplicitArtifacts(artifacts)
@@ -72,6 +80,7 @@ export function resolveReleasePlan({
     notificationPublisher: resolveNotificationPublisher({
       businessOwner,
       expoOwner,
+      projectOwner,
     }),
     shouldDeploySite: resolvedArtifacts.includes("site"),
   };
@@ -85,6 +94,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     explicitArtifacts,
     expoOwner: process.env.EXPO_OWNER ?? "",
     platform: process.env.INPUT_PLATFORM ?? "ios",
+    projectOwner: process.env.PROJECT_MANIFEST_OWNER ?? "",
   });
   process.stdout.write(`${JSON.stringify(plan)}\n`);
 }

@@ -11,6 +11,10 @@ describe("hosted artifact-routing smoke workflow", () => {
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("manifest_owner:");
     expect(workflow).toContain("business_owner:");
+    expect(workflow).toContain("project_manifest_owner:");
+    expect(workflow).toContain(
+      "PROJECT_MANIFEST_OWNER: ${{ inputs.project_manifest_owner }}",
+    );
     expect(workflow).toContain("release-artifact-routing.mjs");
     expect(workflow).toContain("notification_publisher=");
     expect(workflow).toContain("candidate_commit=");

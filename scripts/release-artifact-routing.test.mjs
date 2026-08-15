@@ -69,4 +69,55 @@ describe("release artifact routing", () => {
       }),
     ).toThrow("Expo manifest owner is required for notification routing");
   });
+
+  it("routes a personal project-manifest owner to Discord even with no business owner", () => {
+    expect(
+      resolveReleasePlan({
+        artifacts: "ios",
+        expoOwner: "adamu-personal-projects",
+        projectOwner: "personal",
+      }),
+    ).toMatchObject({
+      notificationPublisher: "discord",
+    });
+  });
+
+  it("routes a business project-manifest owner to Slack regardless of the Expo owner comparison", () => {
+    expect(
+      resolveReleasePlan({
+        artifacts: "ios",
+        businessOwner: "progress-companion-app",
+        expoOwner: "personal-court-app",
+        projectOwner: "progress-companion",
+      }),
+    ).toMatchObject({
+      notificationPublisher: "slack",
+    });
+  });
+
+  it("prefers a personal project-manifest owner over a matching business Expo owner", () => {
+    expect(
+      resolveReleasePlan({
+        artifacts: "ios",
+        businessOwner: "progress-companion-app",
+        expoOwner: "progress-companion-app",
+        projectOwner: "personal",
+      }),
+    ).toMatchObject({
+      notificationPublisher: "discord",
+    });
+  });
+
+  it("does not require an Expo owner when the project manifest already decides the route", () => {
+    expect(
+      resolveReleasePlan({
+        artifacts: "ios",
+        businessOwner: "progress-companion-app",
+        expoOwner: "",
+        projectOwner: "personal",
+      }),
+    ).toMatchObject({
+      notificationPublisher: "discord",
+    });
+  });
 });

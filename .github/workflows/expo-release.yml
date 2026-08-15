@@ -101,7 +101,8 @@ jobs:
           set -euo pipefail
           APP_CONFIG=$(npx --no-install expo config --type public --json)
           EXPO_OWNER=$(printf '%s' "$APP_CONFIG" | jq -er '.owner | select(type == "string" and length > 0)')
-          PLAN=$(EXPO_OWNER="$EXPO_OWNER" node .tools/scripts/release-artifact-routing.mjs)
+          PROJECT_MANIFEST_OWNER=$(jq -r '.owner // empty' project-manifest.json 2>/dev/null || true)
+          PLAN=$(EXPO_OWNER="$EXPO_OWNER" PROJECT_MANIFEST_OWNER="$PROJECT_MANIFEST_OWNER" node .tools/scripts/release-artifact-routing.mjs)
           artifacts=$(printf '%s' "$PLAN" | jq -c '.artifacts')
           mobile_platforms=$(printf '%s' "$PLAN" | jq -c '.mobilePlatforms')
           should_deploy_site=$(printf '%s' "$PLAN" | jq -r '.shouldDeploySite')

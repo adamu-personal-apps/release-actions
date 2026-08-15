@@ -16,6 +16,11 @@ on:
         required: true
         default: progress-companion-app
         type: string
+      project_manifest_owner:
+        description: project-manifest.json owner to prove ("personal" routes to Discord; empty falls back to the Expo-owner comparison)
+        required: false
+        default: ""
+        type: string
       profile:
         description: Display-only profile label
         required: true
@@ -46,6 +51,7 @@ jobs:
           INPUT_ARTIFACTS: site
           INPUT_BUSINESS_OWNER: ${{ inputs.business_owner }}
           INPUT_PLATFORM: ios
+          PROJECT_MANIFEST_OWNER: ${{ inputs.project_manifest_owner }}
         run: |
           set -euo pipefail
           PLAN=$(node scripts/release-artifact-routing.mjs)

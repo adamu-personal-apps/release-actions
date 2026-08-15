@@ -39,6 +39,12 @@ describe("shared artifact-aware release workflow contract", () => {
     expect(workflow).toContain("INPUT_ARTIFACTS: ${{ inputs.artifacts }}");
     expect(workflow).toContain("INPUT_BUSINESS_OWNER: ${{ inputs.business_owner }}");
     expect(workflow).toContain("EXPO_OWNER=$(printf '%s' \"$APP_CONFIG\" | jq -er '.owner");
+    expect(workflow).toContain(
+      "PROJECT_MANIFEST_OWNER=$(jq -r '.owner // empty' project-manifest.json 2>/dev/null || true)",
+    );
+    expect(workflow).toContain(
+      'PROJECT_MANIFEST_OWNER="$PROJECT_MANIFEST_OWNER" node .tools/scripts/release-artifact-routing.mjs',
+    );
     expect(workflow).toContain("mobile_platforms=$(printf '%s' \"$PLAN\" | jq -c '.mobilePlatforms')");
     expect(workflow).toContain("should_deploy_site=$(printf '%s' \"$PLAN\" | jq -r '.shouldDeploySite')");
     for (const input of [
