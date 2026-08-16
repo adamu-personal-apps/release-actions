@@ -40,7 +40,7 @@ on:
 
 env:
   ACTIONS_REPO: adamu-personal-apps/release-actions
-  ACTIONS_REF: 9048cdfa84872d4198e5c12ef98ab0ee124f5bfd
+  ACTIONS_REF: b0f4831e80107ce8e3b469a818cb412d60c097c8
 
 jobs:
   prepare:
