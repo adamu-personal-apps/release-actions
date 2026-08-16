@@ -83,12 +83,13 @@ export function resolveBuildSelection(
   if (!build || typeof build.id !== "string" || build.id.length === 0) {
     throw new Error("EAS did not return one build with a non-empty ID");
   }
-  if (typeof build.project?.id !== "string" || !build.project.id) {
+  const buildProjectId = buildProject(build)?.id;
+  if (typeof buildProjectId !== "string" || !buildProjectId) {
     throw new Error("EAS build project ID is missing");
   }
-  if (build.project.id !== expectedProjectId) {
+  if (buildProjectId !== expectedProjectId) {
     throw new Error(
-      `EAS build project ID mismatch: expected ${expectedProjectId}, received ${build.project.id}`,
+      `EAS build project ID mismatch: expected ${expectedProjectId}, received ${buildProjectId}`,
     );
   }
   if (build.platform?.toLowerCase() !== expectedPlatform) {
@@ -127,18 +128,29 @@ export function resolveBuildSelection(
   return {
     id: build.id,
     url: buildDetailsUrl(build),
-    projectId: build.project.id,
+    projectId: buildProjectId,
     appVersion: build.appVersion,
     appBuildVersion: build.appBuildVersion,
   };
+}
+
+/**
+ * The owning project on an eas-cli build payload. The CLI's BuildFragment calls
+ * it `app` (app { id name slug ownerAccount }) — verified against eas-cli@22.
+ * `project` is accepted as a fallback so an older CLI's output still validates
+ * instead of failing closed after a build has already been paid for.
+ */
+function buildProject(build) {
+  return build.app ?? build.project;
 }
 
 function buildDetailsUrl(build) {
   if (typeof build.buildDetailsPageUrl === "string") {
     return build.buildDetailsPageUrl;
   }
-  const owner = build.project?.ownerAccount?.name;
-  const slug = build.project?.slug;
+  const project = buildProject(build);
+  const owner = project?.ownerAccount?.name;
+  const slug = project?.slug;
   return typeof owner === "string" && typeof slug === "string"
     ? `https://expo.dev/accounts/${owner}/projects/${slug}/builds/${build.id}`
     : "";

@@ -7,13 +7,19 @@ import {
   submissionArguments,
 } from "./exact-eas-release.mjs";
 
+// Shaped after the REAL eas-cli BuildFragment (verified against
+// eas-cli@22.0.0, build/graphql/types/Build.js): the owning project comes back
+// as `app`, never `project`. An earlier hand-written fixture used `project`,
+// which passed the tests while failing against every real release.
 const selectedBuildJson = JSON.stringify([
   {
     id: "8e32215c-7061-46e4-b15d-08cd2f590a2a",
-    project: {
+    app: {
+      __typename: "App",
       id: "2a4c867f-b521-4278-9a63-a597149b3b1d",
+      name: "ShotStep",
       slug: "shotstep",
-      ownerAccount: { name: "progress-companion-app" },
+      ownerAccount: { id: "acct-1", name: "progress-companion-app" },
     },
     platform: "IOS",
     buildProfile: "production",
@@ -128,7 +134,7 @@ describe("exact EAS release commands", () => {
         JSON.stringify([
           {
             ...JSON.parse(selectedBuildJson)[0],
-            project: { id: "wrong-project" },
+            app: { id: "wrong-project" },
           },
         ]),
         expectedBuild,
@@ -136,6 +142,20 @@ describe("exact EAS release commands", () => {
     ).toThrow(
       "EAS build project ID mismatch: expected 2a4c867f-b521-4278-9a63-a597149b3b1d, received wrong-project",
     );
+  });
+
+  it("still accepts a legacy build payload that carries `project` instead of `app`", () => {
+    // Arrange — an older eas-cli shape: no `app`, project id under `project`.
+    const { app, ...withoutApp } = JSON.parse(selectedBuildJson)[0];
+    const legacyJson = JSON.stringify([
+      { ...withoutApp, project: { id: app.id, slug: app.slug } },
+    ]);
+
+    // Act
+    const selected = resolveBuildSelection(legacyJson, expectedBuild);
+
+    // Assert
+    expect(selected.id).toBe("8e32215c-7061-46e4-b15d-08cd2f590a2a");
   });
 
   it("fails closed when the selected build is from the wrong commit", () => {
