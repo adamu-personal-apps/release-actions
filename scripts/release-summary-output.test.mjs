@@ -75,3 +75,39 @@ describe("writeReleaseSummaryOutput", () => {
     );
   });
 });
+
+describe("selectReleaseSummary source precedence", () => {
+  const changelog = "Performance\n\n- **sync:** first sync is ~25 minutes, not ~6 hours";
+  const subjects = ["chore(release): 2.1.1", "perf(sync): push 16 records at once"];
+
+  it("prefers a changelog summary over raw commit subjects", () => {
+    expect(selectReleaseSummary({ changelogSummary: changelog, subjects })).toBe(changelog);
+  });
+
+  it("still lets an explicitly supplied summary win over the changelog", () => {
+    expect(
+      selectReleaseSummary({ suppliedSummary: "hand written", changelogSummary: changelog, subjects }),
+    ).toBe("hand written");
+  });
+
+  it("falls back to commit subjects when there is no changelog section", () => {
+    expect(selectReleaseSummary({ changelogSummary: null, subjects })).toBe(
+      "- chore(release): 2.1.1\n- perf(sync): push 16 records at once",
+    );
+  });
+
+  it("treats a whitespace-only changelog summary as absent", () => {
+    expect(selectReleaseSummary({ changelogSummary: "   \n  ", subjects })).toBe(
+      "- chore(release): 2.1.1\n- perf(sync): push 16 records at once",
+    );
+  });
+
+  it("still reports the source it chose", () => {
+    expect(selectReleaseSummary({ changelogSummary: changelog, subjects, withSource: true })).toEqual({
+      summary: changelog,
+      source: "changelog",
+    });
+    expect(selectReleaseSummary({ suppliedSummary: "x", withSource: true }).source).toBe("supplied");
+    expect(selectReleaseSummary({ subjects, withSource: true }).source).toBe("commit-log");
+  });
+});
